@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import sklearn.model_selection as prep
 import logging
+import pickle
 
 from typing import *
 from sklearn.preprocessing import LabelEncoder
@@ -12,7 +13,8 @@ class ModelData:
     """
     Preprocesses the dataset to be used to feed to the ML model
 
-    All data to be used for the training must be stored and obtained from this class
+    All data to be used for the training must be stored and obtained
+    from this class
     """
 
     def __init__(self, path: Union[str, os.PathLike, Iterable[Union[str, os.PathLike]]],
@@ -30,6 +32,8 @@ class ModelData:
                         object that references a dataset file
         file_format:    str, that must be 'csv', 'xlsx' or 'json'
         on_error:       str, that must be 'ignore', 'default' or 'raise'
+        args:           positional arguments for pd.read_*() functions
+        kwargs:         keyword arguments for pd.read_*() function
         """
 
         self.path = self._validate(path, (str, os.PathLike, Iterable))
@@ -71,6 +75,8 @@ class ModelData:
                         object that references a dataset file
         file_format:    str, that must be 'csv', 'xlsx' or 'json'
         on_error:       str, that must be 'ignore', 'default' or 'raise'
+        args:           positional arguments for pd.read_*() functions
+        kwargs:         keyword arguments for pd.read_*() function
         """
 
         def _read(_path: Union[str, os.PathLike, Iterable[Union[str, os.PathLike]]],
@@ -80,9 +86,12 @@ class ModelData:
 
             Parameters
             ----------
-            _path:              str or Pathlike or Iterable containing str or Pathlike
-                                object that references a dataset file
-            _file_format:       str, that must be 'csv', 'xlsx' or 'json'
+            path:           str or Pathlike or Iterable containing str or Pathlike
+                            object that references a dataset file
+            file_format:    str, that must be 'csv', 'xlsx' or 'json'
+            on_error:       str, that must be 'ignore', 'default' or 'raise'
+            args:           positional arguments for pd.read_*() functions
+            kwargs:         keyword arguments for pd.read_*() function
             """
 
             if len(_args) > 0 or len(_kwargs) > 0:
@@ -163,7 +172,7 @@ class ModelData:
                 except Exception:
                     raise
 
-    def drop(self, cols: Union[Iterable[str], str]):
+    def drop(self, cols: Union[Iterable[str], str], axis: int = 1):
         """
         Drops the passed in col names from the dataset
 
@@ -171,19 +180,22 @@ class ModelData:
         ----------
         cols:               An Iterable of strings or string that contains columns to drop
                             from dataset
+        axis:               Denotes the axis to remove data from; 1 represents a column-wise
+                            removal of data and 0 represents a row-wise removal of data
         """
 
         cols = self._validate(cols, (Iterable, str))
+        axis = self._validate(axis, int, range(0, 2))
 
         if isinstance(cols, Iterable) and not isinstance(cols, str):
             for col in cols:
                 try:
-                    self.data.drop([col], axis=1, inplace=True)
+                    self.data.drop([col], axis=axis, inplace=True)
                 except KeyError:
                     raise ValueError('cols contains column headers that are not valid')
         else:
             try:
-                self.data.drop([cols], axis=1, inplace=True)
+                self.data.drop([cols], axis=axis, inplace=True)
             except KeyError:
                 raise ValueError('cols contains column headers that are not valid')
 
@@ -204,11 +216,7 @@ class ModelData:
         """
 
         # validate the ratio first
-        self.train_test_split = self._validate(train_test_split, float)
-        if not 0 < self.train_test_split < 1:
-            self.train_test_split = None
-            raise ValueError('train_test_split parameter cannot be less than or equal to '
-                             '0 or more than or equal to 1')
+        self.train_test_split = self._validate(train_test_split, float, normalize=True)
 
         try:
             # shuffle the dataset
@@ -229,6 +237,10 @@ class ModelData:
             self.X = X
             self.y = utils.to_categorical(self.encoder.transform(y))
 
+            # persist encoder
+            with open(f'models/encoders/encoder_model.pkl', 'wb') as f:
+                pickle.dump(self.encoder, f)
+
             # split by train-test
             try:
                 self.X_train, self.X_test, self.y_train, self.y_test = prep.train_test_split(
@@ -245,14 +257,12 @@ class ModelData:
     def is_processed(self) -> bool:
         """Simple check to see if data is properly split and processed"""
 
-        for var in (self.data, self.X, self.y, self.X_train, self.X_test, self.y_train, self.y_test):
-            if var is None:
-                return False
-
-        return True
+        return all(
+            map(lambda x: x.empty(), (self.data, self.X, self.y, self.X_train, self.X_test, self.y_train, self.y_test)))
 
     @staticmethod
-    def _validate(value: Any, value_type: Any, value_range: Optional[Iterable] = None) -> Any or None:
+    def _validate(value: Any, value_type: Any, value_range: Optional[Iterable] = None,
+                  normalize: bool = False) -> Any or None:
         """
         Validates the input value's type and optionally the valid range of permitted values
 
@@ -261,17 +271,25 @@ class ModelData:
         value:           Any value to test
         value_type:      Any type to test, either contained within an interable like a tuple or as a single type
         value_range:     Iterable containing Any type
+        normalize:       Checks if the datatype is between 0 and 1
 
         Raises
         ------
-        ValueError:      If value is not found in value_range
-        TypeError:       If type of value is not value_type
+        ValueError:      If value is not found in value_range or if value not normalized
+        TypeError:       If type of value is not value_type or if value is not comparable
         """
 
         if isinstance(value, value_type):
             if value_range is not None:
-                value_range = [v for v in value_range]
                 if value in value_range:
+                    if normalize:
+                        try:
+                            if 0 < value < 1:
+                                return value
+                            else:
+                                raise ValueError('value is not between 0 and 1')
+                        except TypeError:
+                            raise TypeError('value does not support comparison using < or >')
                     return value
                 else:
                     raise ValueError(f'{value} is out of range')
