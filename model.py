@@ -1,10 +1,8 @@
-import os
-import logging
 import numpy as np
 import tensorflow as tf
-import ModelData
 import toml
 
+from data import *
 from typing import *
 from tensorflow.keras import utils
 from tensorflow.keras import Model as KerasModel
