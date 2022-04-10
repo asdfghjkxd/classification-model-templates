@@ -3,6 +3,7 @@ import pandas as pd
 import sklearn.model_selection as prep
 import logging
 import pickle
+import numpy as np
 
 from typing import *
 from sklearn.preprocessing import LabelEncoder
@@ -79,8 +80,8 @@ class ModelData:
         kwargs:         keyword arguments for pd.read_*() function
         """
 
-        def _read(_path: Union[str, os.PathLike, Iterable[Union[str, os.PathLike]]],
-                  _file_format: str = 'csv', *_args, **_kwargs) -> pd.DataFrame:
+        def _read(path: Union[str, os.PathLike, Iterable[Union[str, os.PathLike]]],
+                  file_format: str = 'csv', *args, **kwargs) -> pd.DataFrame:
             """
             Internal pd.read_* functions
 
@@ -94,28 +95,28 @@ class ModelData:
             kwargs:         keyword arguments for pd.read_*() function
             """
 
-            if len(_args) > 0 or len(_kwargs) > 0:
-                if _file_format == 'csv':
-                    df = pd.read_csv(_path, *_args, **_kwargs).astype(str)
-                elif _file_format == 'xlsx':
-                    df = pd.read_excel(_path, *_args, **_kwargs).astype(str)
-                elif _file_format == 'json':
-                    df = pd.read_json(_path, *_args, **_kwargs).astype(str)
+            if len(args) > 0 or len(kwargs) > 0:
+                if file_format == 'csv':
+                    df = pd.read_csv(path, *args, **kwargs).astype(str)
+                elif file_format == 'xlsx':
+                    df = pd.read_excel(path, *args, **kwargs).astype(str)
+                elif file_format == 'json':
+                    df = pd.read_json(path, *args, **kwargs).astype(str)
             else:
-                if _file_format == 'csv':
-                    df = pd.read_csv(_path).astype(str)
-                elif _file_format == 'xlsx':
-                    df = pd.read_excel(_path).astype(str)
-                elif _file_format == 'json':
-                    df = pd.read_json(_path).astype(str)
+                if file_format == 'csv':
+                    df = pd.read_csv(path).astype(str)
+                elif file_format == 'xlsx':
+                    df = pd.read_excel(path).astype(str)
+                elif file_format == 'json':
+                    df = pd.read_json(path).astype(str)
 
             return df
 
         try:
             if isinstance(path, str):
-                self.data = _read(_path=path, _file_format=file_format, *args, **kwargs)
+                self.data = _read(path=path, file_format=file_format, *args, **kwargs)
             else:
-                temp = [_read(_path=p, _file_format=file_format, *args, **kwargs) for
+                temp = [_read(path=p, file_format=file_format, *args, **kwargs) for
                         p in path]
                 self.data = pd.concat(temp, axis=0)
         except Exception as ex:
@@ -123,7 +124,7 @@ class ModelData:
                 logging.warning('Dataset is passed as an Exception was encountered '
                                 'while processsing the dataset')
             elif on_error == 'default':
-                self.data = _read(_path=path, _file_format=file_format)
+                self.data = _read(path=path, file_format=file_format)
             elif on_error == 'raise':
                 raise ex
 
@@ -257,8 +258,18 @@ class ModelData:
     def is_processed(self) -> bool:
         """Simple check to see if data is properly split and processed"""
 
-        return all(
-            map(lambda x: x.empty(), (self.data, self.X, self.y, self.X_train, self.X_test, self.y_train, self.y_test)))
+        def _check(inputs):
+            """Internal check if x is of pd.DataFrame or np.ndarray"""
+
+            if isinstance(inputs, pd.DataFrame):
+                return not inputs.empty
+            elif isinstance(inputs, np.ndarray):
+                return inputs.size != 0
+            else:
+                return False if None else True
+
+        return all(list(map(lambda x: _check(x),
+                            (self.data, self.X, self.y, self.X_train, self.X_test, self.y_train, self.y_test))))
 
     @staticmethod
     def _validate(value: Any, value_type: Any, value_range: Optional[Iterable] = None,

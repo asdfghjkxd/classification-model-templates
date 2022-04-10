@@ -8,9 +8,9 @@ from typing import *
 from tensorflow.keras import utils
 from tensorflow.keras import Model as KerasModel
 from tensorflow.keras.optimizers import Adam
-from keras.models import Sequential
+from keras.models import Sequential, load_model
 from keras.layers import Dense, TextVectorization, Dropout, concatenate, Input, Embedding, \
-                         Bidirectional, LSTM, GRU, MaxPool1D, Flatten, Conv1D
+                         Bidirectional, LSTM, GRU, MaxPool1D, Flatten, Conv1D, Average, Maximum, Add
 from keras.constraints import MaxNorm
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 
@@ -25,13 +25,13 @@ MAX_PADDING = loaded['globals']['MAX_PADDING']
 class Model:
     """This Class contains methods used for training a standalone or ensemble model to use to classify tokens"""
 
-    def __init__(self, data: ModelData, ensemble: bool = True, ensemble_count: Optional[int] = None):
+    def __init__(self, m_data: ModelData, ensemble: bool = True, ensemble_count: Optional[int] = None):
         """
         Initialises the MLP Model Class
 
         Parameters
         ----------
-        data:               ModelData instance containing all the data to use for training
+        m_data:             ModelData instance containing all the data to use for training
         ensemble:           Flag to indicate to create an emsemble model or not
         ensemble_count:     Number of ensemble models to instantiate and train; this parameter means nothing
                             if ensemble training is not done, and a warning will be returned
@@ -57,15 +57,14 @@ class Model:
         self.tuner = None
         self.to_map = False
 
-        if data.is_processed():
-            self.data = self._validate(data, ModelData)
+        if m_data.is_processed():
+            self.data = self._validate(m_data, ModelData)
         else:
             raise AssertionError('Dataset to use is not properly processed')
 
         self.ensemble = self._validate(ensemble, bool)
         if self.ensemble:
-            raise NotImplementedError('Ensemble models do not work')
-            # self.ensemble_count = self._validate(ensemble_count, int, range(0, 10000))
+            self.ensemble_count = self._validate(ensemble_count, int, range(0, 10000))
         else:
             if ensemble_count is not None:
                 logging.warning('\tYou tried to specify the number of ensemble models to instantiate when you set the '
@@ -100,92 +99,50 @@ class Model:
                                                output_sequence_length=MAX_PADDING)
             self.vectorise.adapt(self.data.X)
 
-            if self.model_type != 'CNN-GRU':
-                # create model now
-                model = Sequential()
-                model.add(Input(shape=(1,), dtype=tf.string))
-                model.add(self.vectorise)
+            # create model now
+            model = Sequential()
+            model.add(Input(shape=(1,), dtype=tf.string))
+            model.add(self.vectorise)
 
-                if self.model_type == 'Simple':
-                    # create the hidden layers
-                    for lyr in range(self.hidden_layers):
-                        if isinstance(self.neurons, Iterable):
-                            model.add(Dense(self.neurons[lyr], activation='relu'))
-                        else:
-                            model.add(Dense(self.neurons, activation='relu'))
-                        model.add(Dropout(self.dropout))
-                elif self.model_type == 'RNN':
-                    model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                                        output_dim=self.neurons,
-                                        mask_zero=True))
-                    model.add(Bidirectional(LSTM(self.neurons)))
-                    for lyr in range(self.hidden_layers):
-                        if isinstance(self.neurons, Iterable):
-                            model.add(Dense(self.neurons[lyr], activation='relu'))
-                        else:
-                            model.add(Dense(self.neurons, activation='relu'))
-                        model.add(Dropout(self.dropout))
-                elif self.model_type == 'BiLSTM':
-                    model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                                        output_dim=self.neurons,
-                                        mask_zero=True))
-                    model.add(Bidirectional(LSTM(self.neurons, return_sequences=True)))
-                    model.add(Bidirectional(LSTM(int(self.neurons / 2))))
-                    for lyr in range(self.hidden_layers):
-                        if isinstance(self.neurons, Iterable):
-                            model.add(Dense(self.neurons[lyr], activation='relu'))
-                        else:
-                            model.add(Dense(self.neurons, activation='relu'))
-                        model.add(Dropout(self.dropout))
+            if self.model_type == 'Simple':
+                # create the hidden layers
+                for lyr in range(self.hidden_layers):
+                    if isinstance(self.neurons, Iterable):
+                        model.add(Dense(self.neurons[lyr], activation='relu'))
+                    else:
+                        model.add(Dense(self.neurons, activation='relu'))
+                    model.add(Dropout(self.dropout))
+            elif self.model_type == 'RNN':
+                model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
+                                    output_dim=self.neurons,
+                                    mask_zero=True))
+                model.add(Bidirectional(LSTM(self.neurons)))
+                for lyr in range(self.hidden_layers):
+                    if isinstance(self.neurons, Iterable):
+                        model.add(Dense(self.neurons[lyr], activation='relu'))
+                    else:
+                        model.add(Dense(self.neurons, activation='relu'))
+                    model.add(Dropout(self.dropout))
+            elif self.model_type == 'BiLSTM':
+                model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
+                                    output_dim=self.neurons,
+                                    mask_zero=True))
+                model.add(Bidirectional(LSTM(self.neurons, return_sequences=True)))
+                model.add(Bidirectional(LSTM(int(self.neurons / 2))))
+                for lyr in range(self.hidden_layers):
+                    if isinstance(self.neurons, Iterable):
+                        model.add(Dense(self.neurons[lyr], activation='relu'))
+                    else:
+                        model.add(Dense(self.neurons, activation='relu'))
+                    model.add(Dropout(self.dropout))
 
-                model.add(Dense(self.data.y.shape[1], activation='softmax'))
+            model.add(Dense(self.data.y.shape[1], activation='softmax'))
 
-                # compile model and return
-                model.compile(optimizer='adam',
-                              loss='categorical_crossentropy',
-                              metrics=['accuracy'])
-                return model
-            else:
-                raise NotImplementedError('Still in Testing...')
-                # model1 = Input(shape=(1,))
-                # vectorise1 = TextVectorization(max_tokens=MAX_TOKENS, output_mode='int',
-                #                                output_sequence_length=MAX_PADDING)
-                # vectorise1.adapt(self.data.X)
-                # vectorise1 = vectorise1(model1)
-                # embedding1 = Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                #                        output_dim=self.neurons,
-                #                        mask_zero=True)(vectorise1)
-                # conv1 = Conv1D(filters=100,
-                #                kernel_size=(4, ),
-                #                activation='relu',
-                #                kernel_constraint=MaxNorm(max_value=3, axis=[0, 1]))(embedding1)
-                # pool1 = MaxPool1D(pool_size=2,
-                #                   strides=2)(conv1)
-                # flat1 = Flatten()(pool1)
-                # drop1 = Dropout(self.dropout)(flat1)
-                # dense1 = Dense(self.neurons, activation='relu')(drop1)
-                # drop1 = Dropout(self.dropout)(dense1)
-                # output1 = Dense(self.data.y.shape[1], activation='softmax')(drop1)
-                #
-                # model2 = Input(shape=(1,))
-                # vectorise2 = TextVectorization(max_tokens=MAX_TOKENS, output_mode='int',
-                #                                output_sequence_length=MAX_PADDING)
-                # vectorise2.adapt(self.data.X)
-                # vectorise2 = vectorise2(model2)
-                # embedding2 = Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                #                        output_dim=self.neurons,
-                #                        mask_zero=True)(vectorise2)
-                # bidirectional2 = Bidirectional(GRU(self.neurons))(embedding2)
-                # drop2 = Dropout(self.dropout)(bidirectional2)
-                # output2 = Dense(self.data.y.shape[1], activation='softmax')(drop2)
-                #
-                # merged = concatenate([output1, output2])
-                # output = Dense(self.data.y.shape[1], activation='softmax')(merged)
-                # model = KerasModel(inputs=[model1, model2], outputs=output)
-                # model.compile(optimizer='adam',
-                #               loss='categorical_crossentropy',
-                #               metrics=['accuracy'])
-                # return model
+            # compile model and return
+            model.compile(optimizer='adam',
+                          loss='categorical_crossentropy',
+                          metrics=['accuracy'])
+            return model
 
         # validate temp vars
         hidden = self._validate(hidden_layers, int, range(1, MAX))
@@ -221,12 +178,12 @@ class Model:
         self.epochs = self._validate(epochs, int, range(1, MAX))
         self.batch_size = self._validate(batch_size, int, range(1, MAX))
         self.shuffle = self._validate(shuffle, bool)
-        self.model_type = self._validate(model_type, str, ('Simple', 'RNN', 'BiLSTM', 'CNN-GRU'))
+        self.model_type = self._validate(model_type, str, ('Simple', 'RNN', 'BiLSTM'))
         self.validation_split = self._validate(validation_split, float, normalize=True)
 
         # set callbacks
         self.callbacks = [
-            EarlyStopping(monitor='loss',
+            EarlyStopping(monitor='val_loss',
                           mode='min',
                           patience=patience,
                           restore_best_weights=True),
@@ -260,6 +217,8 @@ class Model:
         Note that this function does not allow you to specify the number of neurons per layer. If you
         want to do that, use .fit() instead.
 
+        WARNING: NOT TESTED
+
         Parameters
         ----------
         Optimization Possible
@@ -285,6 +244,9 @@ class Model:
         <---->
         persist:                    Flag to save model to disk
         """
+
+        # WARNING
+        logging.warning('This function has not been properly tested')
 
         persist = self._validate(persist, bool)
         min_neuron = self._validate(min_neuron, (type(None), int))
@@ -386,46 +348,17 @@ class Model:
                               metrics=['accuracy'])
                 return model
             else:
-                raise NotImplementedError('Still in Testing...')
-                # model1 = Input(shape=(1,))
-                # vectorise1 = TextVectorization(max_tokens=MAX_TOKENS, output_mode='int',
-                #                                output_sequence_length=MAX_PADDING)
-                # vectorise1.adapt(self.data.X)
-                # vectorise1 = vectorise1(model1)
-                # embedding1 = Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                #                        output_dim=neuron_optimizer,
-                #                        mask_zero=True)(vectorise1)
-                # conv1 = Conv1D(filters=100,
-                #                kernel_size=(4, ),
-                #                activation='relu',
-                #                kernel_constraint=MaxNorm(max_value=3, axis=[0, 1]))(embedding1)
-                # pool1 = MaxPool1D(pool_size=2,
-                #                   strides=2)(conv1)
-                # flat1 = Flatten()(pool1)
-                # drop1 = Dropout(dropout_optimizer)(flat1)
-                # dense1 = Dense(neuron_optimizer, activation='relu')(drop1)
-                # drop1 = Dropout(dropout_optimizer)(dense1)
-                # output1 = Dense(self.data.y.shape[1], activation='softmax')(drop1)
-                #
-                # model2 = Input(shape=(1,))
-                # vectorise2 = TextVectorization(max_tokens=MAX_TOKENS, output_mode='int',
-                #                                output_sequence_length=MAX_PADDING)
-                # vectorise2.adapt(self.data.X)
-                # vectorise2 = vectorise2(model2)
-                # embedding2 = Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                #                        output_dim=neuron_optimizer,
-                #                        mask_zero=True)(vectorise2)
-                # bidirectional2 = Bidirectional(GRU(neuron_optimizer))(embedding2)
-                # drop2 = Dropout(dropout_optimizer)(bidirectional2)
-                # output2 = Dense(self.data.y.shape[1], activation='softmax')(drop2)
-                #
-                # merged = concatenate([output1, output2])
-                # output = Dense(self.data.y.shape[1], activation='softmax')(merged)
-                # model = KerasModel(inputs=[model1, model2], outputs=output)
-                # model.compile(optimizer='adam',
-                #               loss='categorical_crossentropy',
-                #               metrics=['accuracy'])
-                # return model
+                # i/o first
+                inputs = Input(shape=(1,))
+                output = [mdl(inputs) for mdl in self.model]
+
+                # init model
+                ensemble_output = Average()(output)
+                model = KerasModel(inputs=inputs, outputs=ensemble_output)
+                model.compile(optimizer='adam',
+                              loss='categorical_crossentropy',
+                              metrics=['accuracy'])
+                return model
 
         self.tuner = kt.Hyperband(_tune,
                                   objective='val_accuracy',
@@ -480,7 +413,7 @@ class Model:
         assert self.model is not None
         persist = self._validate(persist, bool)
 
-        if self.model_type != 'CNN-GRU':
+        if self.model_type != 'Ensemble':
             if self.ensemble:
                 # train all the submodels first
                 self.history = []
@@ -542,25 +475,19 @@ class Model:
                 self.file_counter += 1
             logging.info(f'Model successfully trained!')
 
-    def fit_ensemble(self, neuron: int, validation_split: float, epochs: int = 10, batch_size: int = 1,
-                     shuffle: bool = True, verbose: int = 1, patience: int = 10,
-                     persist: bool = True) -> None:
+    def fit_ensemble(self, on: str = 'average', persist: bool = True) -> None:
         """
-        Fits the ensemble model by first turning all layers in the model untrainable, and then constructing
-        the model from scratch
+        Instantiates and fits the ensemble model
 
-        This function accepts similar inputs as the above .instantiate() function
+        This function requires an ensemble of models to be trained first, and for the method of
+        ensemble output handling to be specified first
 
         Parameters
         ----------
-        neuron:              Number of neurons in the sole layer in ensemble layer
-        epochs:              Number of training iterations
-        batch_size:          The fractional split of the overall dataset to use for training per iteration
-        shuffle:             Shuffle the dataset during training
-        validation_split:    Fraction of dataset to be used for validation
-        verbose:             Integer representing the level of logging provided during training
-        patience:            The number of training cycles to continue when there is no improvements to the loss
-                             or accuracy
+        on:                  Method to handle the outputs of all the stacked models
+                             > average: all model output tensors are averaged
+                             > maximum: only the maximum of the model output tensors are returned
+                             > add: adds up all the output tensors, element-wise
         persist:             Persist model to disk if set to True
         """
 
@@ -568,71 +495,48 @@ class Model:
             raise AssertionError('Model stored is not compatible with Ensemble training')
 
         # validate all params
-        neuron = self._validate(neuron, int, range(1, MAX))
-        epochs = self._validate(epochs, int, range(1, MAX))
-        batch_size = self._validate(batch_size, int, range(1, MAX))
-        shuffle = self._validate(shuffle, bool)
-        verbose = self._validate(verbose, int, range(0, 3))
-        patience = self._validate(patience, int, range(1, MAX))
+        on = self._validate(on, str, ('average', 'maximum', 'add'))
         persist = self._validate(persist, bool)
-        validation_split = self._validate(validation_split, float)
-        if 0 < validation_split < 1:
-            self.validation_split = validation_split
+
+        if isinstance(self.model, (Iterable, Sized)):
+            if len(self.model) > 1:
+                in_lyr = Input(shape=(1,))
+                mdl_out = [mdl(in_lyr) for mdl in self.model]
+                if on == 'average':
+                    outputs = Average()(mdl_out)
+                elif on == 'maximum':
+                    outputs = Maximum()(mdl_out)
+                elif on == 'add':
+                    outputs = Add()(mdl_out)
+                self.ensemble_model = KerasModel(inputs=in_lyr, outputs=outputs)
+                self.ensemble_model.compile(optimizer='adam',
+                                            loss='categorical_crossentropy',
+                                            metrics=['accuracy'])
+                display(utils.plot_model(self.ensemble_model, show_shapes=True))
+            else:
+                raise AssertionError('Number of trained ensemble models cannot be less than or equal to 1')
         else:
-            raise ValueError('patience must be a float between 0 and 1 (not inclusive)')
+            raise AssertionError('Invalid Model saved in class')
 
-        # set callbacks
-        self.callbacks = [
-            EarlyStopping(monitor='loss',
-                          mode='min',
-                          patience=patience,
-                          restore_best_weights=True),
-            ModelCheckpoint(filepath=f'./models/checkpoints/checkpoints_model_{self.file_counter}',
-                            monitor='accuracy',
-                            save_weights_only=True,
-                            save_best_only=True,
-                            save_freq=5)
-        ]
+    def load(self, path: Union[str, Iterable[str]] or Sized) -> None:
+        """
+        Loads up a list of models or a single model from a list of paths or a path
 
-        def _init_ensemble(self) -> tf.keras.Model:
-            """Internal helper function to create the ensemble model using the same specs as the trained model"""
+        Note that this de-initiates any stored models stored in the Model instance
 
-            for i in range(len(self.model)):
-                for lyr in self.model[i].layers:
-                    lyr.trainable = False
-                    lyr._name = f'ensemble_{i}_{lyr.name}'
-            _in = [mdl.input for mdl in self.model]
-            _out = [mdl.output for mdl in self.model]
+        Parameters
+        ----------
+        path:               A str or an Sized or Iterable of str of paths to stored models
+        """
 
-            # merge all layers
-            merged = concatenate(_out)
-            hidden_activations = Dense(neuron, activation='relu')(merged)
-            output = Dense(self.data.y.shape[1], activation='softmax')(hidden_activations)
-            model = KerasModel(inputs=_in, outputs=output)
-            display(utils.plot_model(model, show_shapes=True,
-                                     to_file=f'assets/models/ensemble_model_{self.file_counter}.png'))
-            model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
-            return model
-
-        self.ensemble_model = _init_ensemble(self)
-
-        # fit the ensemble model
-        X = [self.data.X_train for _ in range(len(self.ensemble_model.input))]
-        self.ensemble_model.fit(X,
-                                self.data.y,
-                                epochs=epochs,
-                                batch_size=batch_size,
-                                shuffle=shuffle,
-                                validation_split=validation_split,
-                                verbose=verbose,
-                                callbacks=self.callbacks)
-
-        if persist:
-            if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
-                os.mkdir(os.path.join(os.getcwd(), 'models'))
-
-            self.ensemble_model.save(os.path.join(os.getcwd(), 'models', f'ensemble_model_{self.file_counter}'))
-            self.file_counter += 1
+        path = self._validate(path, (str, Iterable, Sized))
+        try:
+            if isinstance(path, str):
+                self.model = load_model(path)
+            else:
+                self.model = [load_model(p) for p in path]
+        except (FileNotFoundError, IOError):
+            raise ValueError('Path contains invalid paths to models')
 
     def evaluate(self, batch_size: int) -> None:
         """
@@ -664,7 +568,7 @@ class Model:
                 single = self.model.evaluate(self.data.X_test, self.data.y_test, batch_size=batch_size)
                 print(f'Single Model Accuracy: {single}')
 
-    def predict(self, to_predict: str, interpret: Optional[Callable] = None) -> np.array:
+    def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None) -> np.array:
         """
         Predicts the label based on the input string
 
@@ -674,13 +578,11 @@ class Model:
         interpret:          Optional function to interpret predictions
         """
 
-        to_predict = [self._validate(to_predict, str)]
+        to_predict = [self._validate(to_predict, (str, list))]
 
         if self.ensemble:
             if self.ensemble_model is not None:
-                data = tuple(to_predict for _ in range(len(self.ensemble_model.input)))
-                print(data)
-                predictions = self.ensemble_model.predict(data)
+                predictions = self.ensemble_model.predict([to_predict for _ in range(self.ensemble_count)])
             else:
                 logging.warning('Ensemble Training has not been conducted yet.')
         else:
