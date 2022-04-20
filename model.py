@@ -1,7 +1,7 @@
 import numpy as np
 import tensorflow as tf
-import toml
 import keras_tuner as kt
+from config import GLOBALS
 
 from data import *
 from typing import *
@@ -10,16 +10,14 @@ from tensorflow.keras import Model as KerasModel
 from tensorflow.keras.optimizers import Adam
 from keras.models import Sequential, load_model
 from keras.layers import Dense, TextVectorization, Dropout, concatenate, Input, Embedding, \
-                         Bidirectional, LSTM, GRU, MaxPool1D, Flatten, Conv1D, Average, Maximum, Add
+    Bidirectional, LSTM, GRU, MaxPool1D, Flatten, Conv1D, Average, Maximum, Add
 from keras.constraints import MaxNorm
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 
-
 # read config file first and set constants
-loaded = toml.load(os.path.join(os.getcwd(), 'config.toml'))
-MAX = loaded['globals']['GLOBAL_MAX']
-MAX_TOKENS = loaded['globals']['MAX_TOKENS']
-MAX_PADDING = loaded['globals']['MAX_PADDING']
+MAX = GLOBALS['GLOBAL_MAX']
+MAX_TOKENS = GLOBALS['MAX_TOKENS']
+MAX_PADDING = GLOBALS['MAX_PADDING']
 
 
 class Model:
@@ -197,14 +195,13 @@ class Model:
         # init models for training
         if self.ensemble:
             self.model = [_instantiate_model(self) for _ in range(self.ensemble_count)]
-            display(utils.plot_model(self.model[0], show_shapes=True,
-                                     to_file=f'assets/models/model_{self.file_counter}.png',
-                                     show_layer_names=True))
+            utils.plot_model(self.model[0], show_shapes=True,
+                             to_file=f'assets/models/model_{self.file_counter}.png',
+                             show_layer_names=True)
         else:
             self.model = _instantiate_model(self)
-            display(
-                utils.plot_model(self.model, show_shapes=True, to_file=f'assets/models/model_{self.file_counter}.png',
-                                 show_layer_names=True))
+            utils.plot_model(self.model, show_shapes=True, to_file=f'assets/models/model_{self.file_counter}.png',
+                             show_layer_names=True)
 
     def optimise(self, min_neuron: Optional[int] = None, max_neuron: Optional[int] = None,
                  step: Optional[int] = None, dropout: Optional[Iterable[float]] = None, validation_split: float = 0.1,
@@ -512,7 +509,7 @@ class Model:
                 self.ensemble_model.compile(optimizer='adam',
                                             loss='categorical_crossentropy',
                                             metrics=['accuracy'])
-                display(utils.plot_model(self.ensemble_model, show_shapes=True))
+                utils.plot_model(self.ensemble_model, show_shapes=True)
             else:
                 raise AssertionError('Number of trained ensemble models cannot be less than or equal to 1')
         else:
