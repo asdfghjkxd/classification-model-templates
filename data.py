@@ -6,6 +6,7 @@ import pickle
 import numpy as np
 
 from typing import *
+from app_files.data_classes.data_validator import Input
 from sklearn.preprocessing import LabelEncoder
 from tensorflow.keras import utils
 
@@ -37,9 +38,7 @@ class ModelData:
         kwargs:         keyword arguments for pd.read_*() function
         """
 
-        self.path = self._validate(path, (str, os.PathLike, Iterable))
-        self.file_format = self._validate(file_format, str, ('csv', 'xlsx', 'json'))
-        self.on_error = self._validate(on_error, str, ('ignore', 'default', 'raise'))
+        self.inputs = Input(path=path, format=file_format, on_error=on_error)
         self.data = None
         self.X = None
         self.y = None
@@ -50,7 +49,6 @@ class ModelData:
         self.encoder = None
         self.train_test_split = None
         self.read(path=self.path, file_format=self.file_format, on_error=self.on_error,
-                  *args, **kwargs)
 
     def __call__(self) -> pd.DataFrame:
         """Returns the stored dataframe when the class object is called"""
