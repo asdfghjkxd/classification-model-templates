@@ -38,7 +38,7 @@ class ModelData:
         kwargs:         keyword arguments for pd.read_*() function
         """
 
-        self.inputs = Input(path=path, format=file_format, on_error=on_error)
+        self.inputs = Input(path=path, format=file_format, on_error=on_error, args=args, kwargs=kwargs)
         self.data = None
         self.X = None
         self.y = None
@@ -48,7 +48,8 @@ class ModelData:
         self.y_test = None
         self.encoder = None
         self.train_test_split = None
-        self.read(path=self.path, file_format=self.file_format, on_error=self.on_error,
+        self.read(path=self.inputs.path, file_format=self.inputs.file_format,
+                  on_error=self.inputs.on_error, *self.inputs.args, **self.inputs.kwargs)
 
     def __call__(self) -> pd.DataFrame:
         """Returns the stored dataframe when the class object is called"""

@@ -6,10 +6,8 @@ This file also allows users to set the app config for the app
 
 # IMPORT STREAMLIT
 import streamlit as st
-import app_files.model_page as model_page
-import app_files.data_page as data_page
-
-from typing import Callable
+import app_files.pages.model_page as model_page
+import app_files.pages.data_page as data_page
 
 
 # DEFINE THE MULTIPAGE CLASS TO MANAGE THE APPS
