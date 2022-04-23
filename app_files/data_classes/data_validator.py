@@ -54,17 +54,22 @@ class IterableMap(BaseModel):
                 raise AssertionError(f'Dimensions of func_map and tgt_map. Offending dim: '
                                      f'{max(map(lambda x: len(x), (func, tgt)))}')
 
+    @root_validator
+    def assert_valid_col_names(cls, values):
+        df, tgt = values.get('df'), values.get('tgt_map')
+        for t in tgt:
+            if t not in df.columns:
+                raise ValueError(f'Cannot find {t} in DataFrame')
+        return values
+
     def map(self) -> pd.DataFrame:
         """Maps the sequence of callables onto the target columns, optionally onto the destination columns"""
 
         for i in range(len(self.func_map)):
-            try:
-                if self.dest_map is not None:
-                    self.df[self.dest_map[i]] = self.df[self.tgt_map[i]].apply(self.func_map[i])
-                else:
-                    self.df[self.tgt_map[i]] = self.df[self.tgt_map[i]].apply(self.func_map[i])
-            except KeyError:
-                raise ValueError(f'Key {self.tgt_map[i]} not found in DataFrame')
+            if self.dest_map is not None:
+                self.df[self.dest_map[i]] = self.df[self.tgt_map[i]].apply(self.func_map[i])
+            else:
+                self.df[self.tgt_map[i]] = self.df[self.tgt_map[i]].apply(self.func_map[i])
 
         return self.df
 
@@ -104,19 +109,16 @@ class IterableDrop(BaseModel):
     @root_validator
     def assert_valid_col_names(cls, values):
         df, col_names = values.get('df'), values.get('tgt_map')
-
         for col in col_names:
             if col not in df.columns:
-                raise ValueError(f'{col} not found in DataFrame')
-
+                raise ValueError(f'Cannot find {col} in DataFrame columns')
         return values
 
     def drop(self) -> pd.DataFrame:
-        """Drops columns from input DataFrame"""
+        """Drops columns from input DataFrame inplace"""
 
         for it in self.tgt_map:
             self.df.drop(labels=it, axis=axis, inplace=True)
-
         return self.df
 
 
@@ -129,16 +131,18 @@ class Input(BaseModel):
     path:                   A os.PathLike, str or sequence of two aforementioned types
     format:                 A file format string
     on_error:               Behaviour when an operation fails
-    args:                   A tuple/*args of positional arguments
-    kwargs:                 A dict/**kwargs of keyword arguments
-    X:                      A numpy array
-    y:                      A numpy array
-    X_train:                A numpy array
-    X_test:                 A numpy array
-    y_train:                A numpy array
-    y_test:                 A numpy array
-    encoder:                A LabelEncoder class
-    train_test_split:       A ratio of train-test split
+    args:                   A tuple/*args of positional arguments [Optional]
+    kwargs:                 A dict/**kwargs of keyword arguments [Optional]
+
+    > Optional Variables [not necessary to define as it will be updated in the class when operations are performed]
+    X:                      A numpy array containing features of the dataset
+    y:                      A numpy array containing the actual result
+    X_train:                A numpy array containing the set of features to train
+    X_test:                 A numpy array containing the set of features to test
+    y_train:                A numpy array containing the result of the training features
+    y_test:                 A numpy array containing the result of the testing features
+    encoder:                A LabelEncoder class for encoding feature labels (unfitted)
+    train_test_split:       A ratio of train-test split for dataset
     """
 
     class Config:
@@ -150,28 +154,32 @@ class Input(BaseModel):
     path: Union[os.PathLike, str, Union[Sequence[os.PathLike], Sequence[str]]]
     format: str
     on_error: str = 'raise'
-    args: Optional[Tuple] = None
-    kwargs: Optional[Dict] = None
+    args: Optional[Tuple] = ()
+    kwargs: Optional[Dict] = {}
     data: Optional[pd.DataFrame]
-    X: Any = None
-    y: Any = None
-    X_train: Any = None
-    X_test: Any = None
-    y_train: Any = None
-    y_test: Any = None
+    X: Optional[Any]
+    y: Optional[Any]
+    X_train: Optional[Any]
+    X_test: Optional[Any]
+    y_train: Optional[Any]
+    y_test: Optional[Any]
     encoder: Optional[LabelEncoder]
     train_test_split: StrictFloat = 0.8
 
-    def __init__(self, **kwargs):
+    def __init__(self, X: Optional[np.ndarray] = None, y: Optional[np.ndarray] = None,
+                 X_train: Optional[np.ndarray] = None, X_test: Optional[np.ndarray] = None,
+                 y_train: Optional[np.ndarray] = None, y_test: Optional[np.ndarray] = None,
+                 encoder: Optional[LabelEncoder] = None, **kwargs):
+        """While """
         super().__init__(**kwargs)
         self.data = None
-        self.X = None
-        self.y = None
-        self.X_train = None
-        self.X_test = None
-        self.y_train = None
-        self.y_test = None
-        self.encoder = None
+        self.X = X
+        self.y = y
+        self.X_train = X_train
+        self.X_test = X_test
+        self.y_train = y_train
+        self.y_test = y_test
+        self.encoder = encoder
         self.read()
 
     @validator('path', always=True)
@@ -248,14 +256,22 @@ class Input(BaseModel):
             curr_path:      str or Pathlike object that references a dataset file
             """
 
-            try:    
-                if len(self.args) > 0 or len(self.kwargs) > 0:
-                    if self.format == 'csv':
-                        return pd.read_csv(curr_path, *self.args, **self.kwargs).astype(str)
-                    elif self.format == 'xlsx':
-                        return pd.read_excel(curr_path, *self.args, **self.kwargs).astype(str)
-                    elif self.format == 'json':
-                        return pd.read_json(curr_path, *self.args, **self.kwargs).astype(str)
+            try:
+                if self.args is not None or self.kwargs is not None:
+                    if len(self.args) > 0 or len(self.kwargs) > 0:
+                        if self.format == 'csv':
+                            return pd.read_csv(curr_path, *self.args, **self.kwargs).astype(str)
+                        elif self.format == 'xlsx':
+                            return pd.read_excel(curr_path, *self.args, **self.kwargs).astype(str)
+                        elif self.format == 'json':
+                            return pd.read_json(curr_path, *self.args, **self.kwargs).astype(str)
+                    else:
+                        if self.format == 'csv':
+                            return pd.read_csv(curr_path).astype(str)
+                        elif self.format == 'xlsx':
+                            return pd.read_excel(io=curr_path).astype(str)
+                        elif self.format == 'json':
+                            return pd.read_json(curr_path).astype(str)
                 else:
                     if self.format == 'csv':
                         return pd.read_csv(curr_path).astype(str)
@@ -291,7 +307,7 @@ class Input(BaseModel):
         the vectorisation layer is not instantiated here
         """
 
-        assert isinstance(self.data, pd.DataFrame) and not self.data.empty
+        assert isinstance(self.data, pd.DataFrame) and not self.data.empty, 'DataFrame cannot be empty'
 
         self.train_test_split = train_test_split
 
@@ -333,7 +349,7 @@ class Input(BaseModel):
         sequence of column names
         """
 
-        assert isinstance(self.data, pd.DataFrame) and not self.data.empty
+        assert isinstance(self.data, pd.DataFrame) and not self.data.empty, 'DataFrame cannot be empty'
 
         itermap = IterableMap(df=self.data, func_map=func_map, tgt_map=tgt_map, dest_map=dest_map)
         self.data = itermap.map()
@@ -341,7 +357,7 @@ class Input(BaseModel):
     def drop(self, tgt_map: Union[Sequence[Union[int, str]]], axis: StrictInt = 0) -> None:
         """Drops the columns in the DataFrame specified in the target map input"""
 
-        assert isinstance(self.data, pd.DataFrame) and not self.data.empty
+        assert isinstance(self.data, pd.DataFrame) and not self.data.empty, 'DataFrame cannot be empty'
 
         iterdrop = IterableDrop(df=self.data, tgt_map=tgt_map, axis=axis)
         self.data = iterdrop.drop()
@@ -349,7 +365,7 @@ class Input(BaseModel):
     def shape(self) -> tuple:
         """Returns the shape of the DataFrame stored"""
 
-        assert isinstance(self.data, pd.DataFrame) and not self.data.empty
+        assert isinstance(self.data, pd.DataFrame) and not self.data.empty, 'DataFrame cannot be empty'
 
         return self.data.shape if self.data is not None else (0,)
 
@@ -371,21 +387,13 @@ class Input(BaseModel):
 
 
 if __name__ == '__main__':
-    inputs = Input(path=os.getcwd(), format='csv', on_error='ignore', args=(1, ), kwargs={'1': 2}, new='pls')
-    print(inputs.path)
-    print(inputs.format)
-    print(inputs.on_error)
-    print(inputs.args)
-    print(inputs.kwargs)
-    print(inputs.on_error)
+    inputs = Input(path=os.getcwd(), format='csv', on_error='ignore')
+    print('X: ', inputs.X)
+    print('path: ', inputs.path)
+    print('format: ', inputs.format)
+    print('on_error: ', inputs.on_error)
+    print('args: ', inputs.args)
+    print('kwargs', inputs.kwargs)
     inputs.read()
+    print(inputs.shape())
     # inputs.preprocess(word_col='0', label_col='1', train_test_split=0.8)
-
-    iterables = IterableMap(df=pd.DataFrame(data=[0, 1, 2]),
-                            func_map=[lambda x: x + 1], tgt_map=[0], dest_map=[1])
-    print(iterables.func_map)
-    print(iterables.tgt_map)
-    print(iterables.dest_map)
-    print(iterables.df)
-    iterables.map()
-    print(iterables.df)
