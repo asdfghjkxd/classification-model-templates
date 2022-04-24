@@ -170,7 +170,6 @@ class Input(BaseModel):
                  X_train: Optional[np.ndarray] = None, X_test: Optional[np.ndarray] = None,
                  y_train: Optional[np.ndarray] = None, y_test: Optional[np.ndarray] = None,
                  encoder: Optional[LabelEncoder] = None, **kwargs):
-        """While """
         super().__init__(**kwargs)
         self.data = None
         self.X = X
