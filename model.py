@@ -1,4 +1,3 @@
-import numpy as np
 import tensorflow as tf
 import keras_tuner as kt
 from config import GLOBALS
@@ -9,9 +8,8 @@ from tensorflow.keras import utils
 from tensorflow.keras import Model as KerasModel
 from tensorflow.keras.optimizers import Adam
 from keras.models import Sequential, load_model
-from keras.layers import Dense, TextVectorization, Dropout, concatenate, Input, Embedding, \
-    Bidirectional, LSTM, GRU, MaxPool1D, Flatten, Conv1D, Average, Maximum, Add
-from keras.constraints import MaxNorm
+from keras.layers import Dense, TextVectorization, Dropout, Input, Embedding, \
+    Bidirectional, LSTM, Average, Maximum, Add
 from keras.callbacks import EarlyStopping, ModelCheckpoint
 
 # read config file first and set constants

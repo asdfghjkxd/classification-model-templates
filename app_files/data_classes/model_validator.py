@@ -1,24 +1,21 @@
-import os
-import numpy as np
+import datetime
 import tensorflow as tf
 import keras_tuner as kt
-from config import GLOBALS
 
-from data import *
 from data_validator import *
+from config_validator import GLOBALS
 from typing import *
-from pydantic import BaseModel, ValidationError, validator
+from pydantic import *
 from tensorflow.keras import utils
 from tensorflow.keras import Model as KerasModel
 from tensorflow.keras.optimizers import Adam
 from keras.models import Sequential, load_model
-from keras.layers import Dense, TextVectorization, Dropout, concatenate, Input, Embedding, \
-    Bidirectional, LSTM, GRU, MaxPool1D, Flatten, Conv1D, Average, Maximum, Add
-from keras.constraints import MaxNorm
-from keras.callbacks import EarlyStopping, ModelCheckpoint
+from keras.layers import Dense, TextVectorization, Dropout, Input, Embedding, \
+    Bidirectional, LSTM, Average, Maximum, Add
+from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 
 
-class Model(BaseModel):
+class ModelTrainer(BaseModel):
     """
     This class allows for the validation and manipulation of model parameters
 
@@ -28,91 +25,101 @@ class Model(BaseModel):
     MAX:                    Maximum global integer
     MAX_TOKENS:             Maximum number of tokens for the text vectorisation layer
     MAX_PADDING:            Maximum number of tokens to pad inputs up to
+    USE_TENSORBOARD:        Use of Tensorboard to log training progress
 
     > Mandatory
-    data:                   Input validator class (encapsulates the data)
-    ensemble:               Flag to create ensemble models
-    ensemble_count:         Integer number to determine the number of ensemble models to instantiate
+    ensemble_count:         Integer number to determine the number of ensemble models to instantiate,
+                            0 and 1 means that only one model is created, any other positive numbers
+                            create more than one model at a time
+    model_data:             ModelInput validator class (encapsulates the data)
+
 
     > Optional (to be defined in later methods)
-    model:                  Tensorflow Sequential class
-    file_counter:           Integer file counter to start from
-    history:                Historical data from training the model
-    ensemble_model:         Optional Tensorflow Model class for the ensemble model
-    dropout:                Float representing the fraction of dropout for the Dropout layer
-    hidden_layers:          Integer number of hidden Dense layers
-    neurons:                Sequence of integers or an integer representing the number of neurons per dense layer
-    verbose:                Level of debug/printing for Model fitting
-    epochs:                 Integer number of epochs to train the model for
     batch_size:             Integer number for batch sizing for training
-    shuffle:                Boolean flag to determine whether to randomly shuffle the input data
-    validation_split:       Float determining the ratio of train-validation split for training
     callbacks:              A Sequence of keras.callbacks
-    vectorise:              pass
+    dropout:                Float representing the fraction of dropout for the Dropout layer
+    ensemble_model:         Optional Tensorflow Model class for the ensemble model
+    epochs:                 Integer number of epochs to train the model for
+    file_counter:           Integer file counter to start from
+    hidden_layers:          Integer number of hidden Dense layers
+    history:                Historical data from training the model
+    model:                  Tensorflow Sequential class
     model_type:             String representing the type of model to instantiate and train
-    patience:               Integer number for the number of epochs to continue training after no improvements to the
-                            benchmark training statistics
+    neurons:                Sequence of integers or an integer representing the number of neurons per dense layer
+    patience:               Integer number for the number of epochs to continue training after no improvements to
+                            the benchmark training statistics
+    shuffle:                Boolean flag to determine whether to randomly shuffle the input data
     tuner:                  Tensorflow model optimizer
+    validation_split:       Float determining the ratio of train-validation split for training
+    vectorise:              pass
+    verbose:                Level of debug/printing for Model fitting
     """
 
     class Config:
         title = 'ModelConfig'
         arbitrary_types_allowed = True
         validate_all = True
+        validate_assignment = True
         allow_mutation = True
+        smart_union = True
 
-    MAX: int = GLOBALS['GLOBAL_MAX']
-    MAX_TOKENS: int = GLOBALS['MAX_TOKENS']
-    MAX_PADDING: int = GLOBALS['MAX_PADDING']
-    data: Input
-    ensemble: bool = False
-    ensemble_count: Optional[int] = 0
-    model: Optional[Any] = None
+    MAX: conint(ge=0, le=GLOBALS['GLOBAL_MAX']) = GLOBALS['GLOBAL_MAX']
+    MAX_PADDING: conint(ge=1, le=GLOBALS['MAX_PADDING']) = GLOBALS['MAX_PADDING']
+    MAX_TOKENS: conint(ge=1, le=GLOBALS['MAX_TOKENS']) = GLOBALS['MAX_TOKENS']
+    USE_TENSORBOARD: bool = GLOBALS['USE_TENSORBOARD']
+    batch_size: Optional[conint(le=MAX, ge=1)] = None
+    callbacks: Optional[Sequence[Union[EarlyStopping, ModelCheckpoint]]] = None
+    dropout: Optional[confloat(gt=0., lt=1.)] = None
+    ensemble_count: conint(strict=True, ge=0, le=MAX)
+    ensemble_model: Optional[tf.keras.Sequential] = None
+    epochs: Optional[conint(le=MAX, ge=1)] = None
     file_counter: Optional[int] = 0
-    history: Optional[Any] = None
-    ensemble_model: Optional[Any] = None
-    dropout: Optional[Any] = None
-    hidden_layers: Optional[Any] = None
-    neurons: Optional[Any] = None
-    verbose: Optional[Any] = None
-    epochs: Optional[Any] = None
-    batch_size: Optional[Any] = None
-    shuffle: Optional[Any] = None
-    validation_split: Optional[Any] = None
-    callbacks: Optional[Any] = None
-    vectorise: Optional[Any] = None
-    model_type: Optional[Any] = None
-    patience: Optional[Any] = None
+    hidden_layers: Optional[int] = None
+    history: Optional[Union[Sequence[tf.keras.callbacks.History], tf.keras.callbacks.History]] = None
+    learning_rate: Optional[Sequence[confloat(gt=0., lt=1.)]]
+    max_neuron: Optional[conint(le=MAX, gt=0)]
+    min_neuron: Optional[conint(le=MAX, gt=0)]
+    model: Optional[Union[tf.keras.Sequential, Sequence[tf.keras.Sequential]]] = None
+    model_data: ModelInput
+    model_type: Optional[str] = None
+    neurons: Optional[Union[Sequence[int], int]] = None
+    on: Optional[str] = None
+    patience: Optional[int] = None
+    persist: Optional[bool] = True
+    shuffle: Optional[bool] = None
+    step: Optional[conint(le=MAX, gt=0)]
+    to_predict: Optional[Sequence[str]] = None
     tuner: Optional[kt.Hyperband] = None
-    
-    def __init__(self, ensemble: bool = False, ensemble_count: Optional[int] = None, **kwargs):
-        super().__init__(**kwargs)
-        self.model = None
-        self.ensemble = ensemble
-        self.ensemble_count = ensemble_count
-        self.file_counter = 0
-        self.history = None
-        self.ensemble_model = None
-        self.dropout = None
-        self.hidden_layers = None
-        self.neurons = None
-        self.verbose = None
-        self.epochs = None
-        self.batch_size = None
-        self.shuffle = None
-        self.validation_split = None
-        self.callbacks = None
-        self.vectorise = None
-        self.model_type = None
-        self.patience = None
-        self.tuner = None
+    validation_split: Optional[confloat(gt=0., lt=1.)] = None
+    vectorise: Optional[TextVectorization] = None
+    verbose: Optional[conint(le=3, ge=0)] = None
 
-    @validator('data', always=True)
-    def assert_processed(cls, v):
-        if v.is_processed():
-            return v
-        else:
-            raise AssertionError('Input Data is not properly processed')
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.batch_size = None
+        self.callbacks = None
+        self.dropout = None
+        self.ensemble_model = None
+        self.epochs = None
+        self.file_counter = 0
+        self.hidden_layers = None
+        self.history = None
+        self.learning_rate = None
+        self.max_neuron = None
+        self.min_neuron = None
+        self.model = None
+        self.model_type = None
+        self.neurons = None
+        self.on = None
+        self.patience = None
+        self.persist = None
+        self.shuffle = None
+        self.step = None
+        self.to_predict = None
+        self.tuner = None
+        self.validation_split = None
+        self.vectorise = None
+        self.verbose = None
 
     @root_validator
     def assert_ensemble(cls, values):
@@ -126,32 +133,56 @@ class Model(BaseModel):
 
         return values
 
-    @validator('model_type', always=True)
+    @validator('model_type')
     def assert_model_type(cls, v):
         if v in ['Simple', 'RNN', 'BiLSTM'] or v is None:
             return v
         else:
             raise AssertionError('model_type parameter invalid')
 
+    @root_validator
+    def assert_neurons(cls, values):
+        _min, _max = values.get('min_neuron'), values.get('max_neuron')
+        if not any(map(lambda x: x is None, (_min, _max))):
+            if _min >= _max:
+                raise ValueError('min_neuron cannot be greater than or equal to max_neuron')
+
+        return values
+
+    @validator('on')
+    def assert_on_ensemble(cls, v):
+        if v in ['average', 'maximum', 'add'] or v is None:
+            return v
+        else:
+            raise ValueError('on must of of values ["average", "maximum", "add"]')
+
+    @validator('data', always=True, check_fields=False)
+    def assert_processed(cls, v):
+        if v.is_processed():
+            return v
+        else:
+            raise AssertionError('Input Data is not properly processed')
+
     def instantiate(self, hidden_layers: int, neurons_per_layer: Union[Sequence[int], int], dropout_threshold: float,
                     validation_split: float, model_type: str = 'RNN', epochs: int = 10, batch_size: int = 1,
                     shuffle: bool = True, verbose: int = 1, patience: int = 10):
         """
-        Method to instantiate the model/models used for the classification task
+        Method to instantiate the model/models
 
         Parameters
         ----------
-        hidden_layers:       Specifies the number of hidden layers to create in the model
-        neurons_per_layer:   Specifies the number of neurons per hidden layer
-        dropout_threshold:   Specifies the fraction of neurons to be dropped out per iteration
-        model_type:          Specifies the type of model being trained
-        epochs:              Number of training iterations
         batch_size:          The fractional split of the overall dataset to use for training per iteration
+        dropout_threshold:   Specifies the fraction of neurons to be dropped out per iteration
+        epochs:              Number of training iterations
+        hidden_layers:       Specifies the number of hidden layers to create in the model
+        model_type:          Specifies the type of model being trained
+        neurons_per_layer:   Specifies the number of neurons per hidden layer
+        patience:            The number of training cycles to continue when there is no improvements to the loss
+                             or accuracy
         shuffle:             Shuffle the dataset during training
         validation_split:    Fraction of dataset to be used for validation
         verbose:             Integer representing the level of logging provided during training
-        patience:            The number of training cycles to continue when there is no improvements to the loss
-                             or accuracy
+
         """
 
         def _instantiate_model() -> tf.keras.Sequential:
@@ -160,7 +191,7 @@ class Model(BaseModel):
             # create the word vectorisation layer first
             self.vectorise = TextVectorization(max_tokens=self.MAX_TOKENS, output_mode='int',
                                                output_sequence_length=self.MAX_PADDING)
-            self.vectorise.adapt(self.data.X)
+            self.vectorise.adapt(self.model_data.X)
 
             # create model now
             model = Sequential()
@@ -170,7 +201,7 @@ class Model(BaseModel):
             if self.model_type == 'Simple':
                 # create the hidden layers
                 for lyr in range(self.hidden_layers):
-                    if isinstance(self.neurons, Iterable):
+                    if isinstance(self.neurons, Sequence):
                         model.add(Dense(self.neurons[lyr], activation='relu'))
                     else:
                         model.add(Dense(self.neurons, activation='relu'))
@@ -181,7 +212,7 @@ class Model(BaseModel):
                                     mask_zero=True))
                 model.add(Bidirectional(LSTM(self.neurons)))
                 for lyr in range(self.hidden_layers):
-                    if isinstance(self.neurons, Iterable):
+                    if isinstance(self.neurons, Sequence):
                         model.add(Dense(self.neurons[lyr], activation='relu'))
                     else:
                         model.add(Dense(self.neurons, activation='relu'))
@@ -193,13 +224,13 @@ class Model(BaseModel):
                 model.add(Bidirectional(LSTM(self.neurons, return_sequences=True)))
                 model.add(Bidirectional(LSTM(int(self.neurons / 2))))
                 for lyr in range(self.hidden_layers):
-                    if isinstance(self.neurons, Iterable):
+                    if isinstance(self.neurons, Sequence):
                         model.add(Dense(self.neurons[lyr], activation='relu'))
                     else:
                         model.add(Dense(self.neurons, activation='relu'))
                     model.add(Dropout(self.dropout))
 
-            model.add(Dense(self.data.y.shape[1], activation='softmax'))
+            model.add(Dense(self.model_data.y.shape[1], activation='softmax'))
 
             # compile model and return
             model.compile(optimizer='adam',
@@ -207,62 +238,71 @@ class Model(BaseModel):
                           metrics=['accuracy'])
             return model
 
-        # validate temp vars
-        hidden = self._validate(hidden_layers, int, range(1, MAX))
-        neurons = self._validate(neurons_per_layer, (Iterable, int))
-
-        # validate training params
-        if isinstance(neurons, int):
-            self.hidden_layers = hidden
-            self.neurons = neurons
-        elif isinstance(neurons, Sequence) and not isinstance(neurons, str):
-            if len(neurons) < hidden:
+        if isinstance(neurons_per_layer, int):
+            self.hidden_layers = hidden_layers
+            self.neurons = neurons_per_layer
+        elif isinstance(neurons_per_layer, Sequence) and not isinstance(neurons_per_layer, str):
+            if len(neurons_per_layer) < hidden_layers:
                 # pad to number of hidden layers
-                to_pad = hidden - len(neurons)
-                neurons = neurons + ([neurons[-1]] * to_pad)
-                self.hidden_layers = hidden
-                self.neurons = neurons
-            elif len(neurons) > hidden:
+                to_pad = hidden_layers - len(neurons_per_layer)
+                neurons_per_layer = [n for n in neurons_per_layer] + ([neurons_per_layer[-1]] * to_pad)
+                self.hidden_layers = hidden_layers
+                self.neurons = neurons_per_layer
+            elif len(neurons_per_layer) > hidden_layers:
                 # truncate
-                neurons = neurons[:hidden]
-                self.hidden_layers = hidden
-                self.neurons = neurons
+                neurons_per_layer = neurons_per_layer[:hidden_layers]
+                self.hidden_layers = hidden_layers
+                self.neurons = neurons_per_layer
             else:
                 # accept as is
-                self.hidden_layers = hidden
-                self.neurons = neurons
+                self.hidden_layers = hidden_layers
+                self.neurons = neurons_per_layer
         else:
             raise ValueError('Neuron count input is invalid')
 
-        self.dropout = self._validate(dropout_threshold, float, normalize=True)
-        self.verbose = self._validate(verbose, int, range(0, 3))
-        self.epochs = self._validate(epochs, int, range(1, MAX))
-        self.batch_size = self._validate(batch_size, int, range(1, MAX))
-        self.shuffle = self._validate(shuffle, bool)
-        self.model_type = self._validate(model_type, str, ('Simple', 'RNN', 'BiLSTM'))
-        self.validation_split = self._validate(validation_split, float, normalize=True)
+        self.batch_size = batch_size
+        self.dropout_threshold = dropout_threshold
+        self.epochs = epochs
+        self.model_type = model_type
+        self.shuffle = shuffle
+        self.validation_split = validation_split
+        self.verbose = verbose
 
-        # set callbacks
-        self.callbacks = [
-            EarlyStopping(monitor='val_loss',
-                          mode='min',
-                          patience=patience,
-                          restore_best_weights=True),
-            ModelCheckpoint(filepath=f'./models/checkpoints/checkpoints_model_{self.file_counter}',
-                            monitor='accuracy',
-                            save_weights_only=True,
-                            save_best_only=True,
-                            save_freq=5)
-        ]
+        if self.USE_TENSORBOARD:
+            self.callbacks = [
+                EarlyStopping(monitor='val_loss',
+                              mode='min',
+                              patience=patience,
+                              restore_best_weights=True),
+                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
+                                monitor='accuracy',
+                                save_weights_only=True,
+                                save_best_only=True,
+                                save_freq=5),
+                TensorBoard(log_dir=f'../../logs/fit/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
+                            histogram_freq=1)
+            ]
+        else:
+            self.callbacks = [
+                EarlyStopping(monitor='val_loss',
+                              mode='min',
+                              patience=patience,
+                              restore_best_weights=True),
+                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
+                                monitor='accuracy',
+                                save_weights_only=True,
+                                save_best_only=True,
+                                save_freq=5)
+            ]
 
         # init models for training
-        if self.ensemble:
-            self.model = [_instantiate_model(self) for _ in range(self.ensemble_count)]
+        if self.ensemble_count and self.ensemble_count > 1:
+            self.model = [_instantiate_model() for _ in range(self.ensemble_count)]
             utils.plot_model(self.model[0], show_shapes=True,
                              to_file=f'assets/models/model_{self.file_counter}.png',
                              show_layer_names=True)
         else:
-            self.model = _instantiate_model(self)
+            self.model = _instantiate_model()
             utils.plot_model(self.model, show_shapes=True, to_file=f'assets/models/model_{self.file_counter}.png',
                              show_layer_names=True)
 
@@ -281,16 +321,14 @@ class Model(BaseModel):
 
         Parameters
         ----------
-        Optimization Possible
-        <------------------->
+        > Optimization Possible
         min_neuron:                 Minimum number of neurons in NN
         max_neuron:                 Maximum number of neurons in NN
         step:                       Increments of neuron number
         learning_rate:              Iterable of floats to use as learning rate
         dropout:                    Iterable of floats to use to test level of dropout
 
-        Hard-coded
-        <-------->
+        > Hard-coded
         validation_split:           Fraction of dataset to be used for validation
         model_type:                 Specifies the type of model being trained
         epochs:                     Number of training iterations
@@ -300,59 +338,54 @@ class Model(BaseModel):
         patience:                   The number of training cycles to continue when there is no improvements to the loss
                                     or accuracy
 
-        Others
-        <---->
+        > Flags
         persist:                    Flag to save model to disk
         """
 
         # WARNING
         logging.warning('This function has not been properly tested')
 
-        persist = self._validate(persist, bool)
-        min_neuron = self._validate(min_neuron, (type(None), int))
-        max_neuron = self._validate(max_neuron, (type(None), int))
-        step = self._validate(step, (type(None), int))
-        learning_rate = self._validate(learning_rate, (type(None), Iterable))
-        assert type(learning_rate) != str
-
-        self.verbose = self._validate(verbose, int, range(0, 3))
-        self.epochs = self._validate(epochs, int, range(1, MAX))
-        self.batch_size = self._validate(batch_size, int, range(1, MAX))
-        self.shuffle = self._validate(shuffle, bool)
-        self.model_type = self._validate(model_type, str, ('Simple', 'RNN', 'BiLSTM', 'CNN-GRU'))
-        self.patience = self._validate(patience, int, range(0, MAX))
-        self.validation_split = self._validate(validation_split, float)
-        if 0 < validation_split < 1:
-            self.validation_split = validation_split
+        self.min_neuron = min_neuron
+        self.max_neuron: max_neuron
+        self.step = step
+        self.dropout = dropout
+        self.validation_split = validation_split
+        self.learning_rate = learning_rate
+        self.model_type = model_type
+        self.epochs = epochs
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+        self.verbose = verbose
+        self.patience = patience
+        self.persist = persist
+        if self.USE_TENSORBOARD:
+            self.callbacks = [
+                EarlyStopping(monitor='val_loss',
+                              mode='min',
+                              patience=patience,
+                              restore_best_weights=True),
+                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
+                                monitor='accuracy',
+                                save_weights_only=True,
+                                save_best_only=True,
+                                save_freq=5),
+                TensorBoard(log_dir=f'../../logs/fit/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
+                            histogram_freq=1)
+            ]
         else:
-            raise ValueError('patience must be a float between 0 and 1 (not inclusive)')
+            self.callbacks = [
+                EarlyStopping(monitor='val_loss',
+                              mode='min',
+                              patience=patience,
+                              restore_best_weights=True),
+                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
+                                monitor='accuracy',
+                                save_weights_only=True,
+                                save_best_only=True,
+                                save_freq=5)
+            ]
 
-        dropout = self._validate(dropout, (type(None), Iterable))
-        if type(dropout) != str:
-            for possible in dropout:
-                if possible < 0 or possible > 1:
-                    raise ValueError('dropout cannot be <0 or >1')
-
-        if min_neuron > max_neuron:
-            raise ValueError('Minimum number of neurons cannot be less than the maximum')
-        elif max_neuron % max_neuron != 0 or max_neuron % step != 0:
-            raise ValueError('Your max neurons, min neurons and step should have the same '
-                             'multiplicative base')
-
-        # set callbacks
-        self.callbacks = [
-            EarlyStopping(monitor='loss',
-                          mode='min',
-                          patience=patience,
-                          restore_best_weights=True),
-            ModelCheckpoint(filepath=f'./models/checkpoints/checkpoints_model_{self.file_counter}',
-                            monitor='accuracy',
-                            save_weights_only=True,
-                            save_best_only=True,
-                            save_freq=5)
-        ]
-
-        def _tune(self, hypertrainer):
+        def _tune(hypertrainer):
             """
             Internal method to init a hyperoptimization-compatible model
 
@@ -362,9 +395,9 @@ class Model(BaseModel):
             """
 
             # create the word vectorisation layer first
-            self.vectorise = TextVectorization(max_tokens=MAX_TOKENS, output_mode='int',
-                                               output_sequence_length=MAX_PADDING)
-            self.vectorise.adapt(self.data.X)
+            self.vectorise = TextVectorization(max_tokens=self.MAX_TOKENS, output_mode='int',
+                                               output_sequence_length=self.MAX_PADDING)
+            self.vectorise.adapt(self.model_data.X)
 
             # define hyperoptimization layers
             neuron_optimizer = hypertrainer.Int('neuron', min_value=min_neuron, max_value=max_neuron, step=step)
@@ -400,7 +433,7 @@ class Model(BaseModel):
                         model.add(Dense(neuron_optimizer, activation='relu'))
                         model.add(Dropout(dropout_optimizer))
 
-                model.add(Dense(self.data.y.shape[1], activation='softmax'))
+                model.add(Dense(self.model_data.y.shape[1], activation='softmax'))
 
                 # compile model and return
                 model.compile(optimizer=Adam(learning_rate=learning_rate_optimizer),
@@ -426,7 +459,7 @@ class Model(BaseModel):
                                   factor=3,
                                   directory=f'./models/tuned/model_{self.file_counter}',
                                   project_name=f'model_{self.file_counter}_tuner')
-        self.tuner.search(self.data.X_train, self.data.y_train,
+        self.tuner.search(self.model_data.X_train, self.model_data.y_train,
                           epochs=self.epochs, validation_split=self.validation_split,
                           callbacks=[self.callbacks], batch_size=self.batch_size,
                           verbose=self.verbose, shuffle=self.shuffle)
@@ -435,7 +468,7 @@ class Model(BaseModel):
         logging.info('Obtained best hyperparameters')
 
         self.model = self.tuner.hypermodel.build(best_hyperparams)
-        self.history = self.model.fit(self.data.X_train, self.data.y_train,
+        self.history = self.model.fit(self.model_data.X_train, self.model_data.y_train,
                                       epochs=self.epochs, validation_split=self.validation_split,
                                       verbose=self.verbose, callbacks=[self.callbacks],
                                       batch_size=self.batch_size, shuffle=self.shuffle)
@@ -445,7 +478,7 @@ class Model(BaseModel):
 
         # reinit model and train again with best epoch
         self.model = self.tuner.hypermodel.build(best_hyperparams)
-        self.model.fit(self.data.X_train, self.data.y_train,
+        self.model.fit(self.model_data.X_train, self.model_data.y_train,
                        epochs=best_epoch, validation_split=self.validation_split,
                        verbose=self.verbose, callbacks=[self.callbacks],
                        batch_size=self.batch_size, shuffle=self.shuffle)
@@ -470,39 +503,36 @@ class Model(BaseModel):
         persist:                Flag to indicate whether to persist model to disk or not
         """
 
+        self.persist = persist
         assert self.model is not None
-        persist = self._validate(persist, bool)
 
         if self.model_type != 'Ensemble':
-            if self.ensemble:
+            if self.ensemble_count > 1:
                 # train all the submodels first
-                self.history = []
+                history = []
                 for i in range(len(self.model)):
-                    self.history.append(self.model[i].fit(self.data.X_train,
-                                                          self.data.y_train,
-                                                          epochs=self.epochs,
-                                                          batch_size=self.batch_size,
-                                                          shuffle=self.shuffle,
-                                                          validation_split=self.validation_split,
-                                                          verbose=self.verbose,
-                                                          callbacks=self.callbacks
-                                                          ))
-                    if persist:
+                    history.append(self.model[i].fit(self.model_data.X_train,
+                                                     self.model_data.y_train,
+                                                     epochs=self.epochs,
+                                                     batch_size=self.batch_size,
+                                                     shuffle=self.shuffle,
+                                                     validation_split=self.validation_split,
+                                                     verbose=self.verbose,
+                                                     callbacks=self.callbacks
+                                                     ))
+                    if self.persist:
                         if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
                             os.mkdir(os.path.join(os.getcwd(), 'models'))
 
                         self.model[i].save(os.path.join(os.getcwd(), 'models', f'model_{self.file_counter}'))
                         self.file_counter += 1
                     logging.info(f'Model {i} successfully trained!')
-
-                # start ensemble training
-
-                logging.info(
-                    'All models trained successfully! Beginning with ensemble model instantiation and training...')
-
+                self.history = history
+                logging.info('All models trained successfully! Beginning with ensemble model instantiation '
+                             'and training...')
             else:
-                self.history = self.model.fit(self.data.X_train,
-                                              self.data.y_train,
+                self.history = self.model.fit(self.model_data.X_train,
+                                              self.model_data.y_train,
                                               epochs=self.epochs,
                                               batch_size=self.batch_size,
                                               shuffle=self.shuffle,
@@ -510,7 +540,7 @@ class Model(BaseModel):
                                               verbose=self.verbose,
                                               callbacks=self.callbacks
                                               )
-                if persist:
+                if self.persist:
                     if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
                         os.mkdir(os.path.join(os.getcwd(), 'models'))
 
@@ -518,8 +548,8 @@ class Model(BaseModel):
                     self.file_counter += 1
                 logging.info(f'Model successfully trained!')
         else:
-            self.history = self.model.fit([self.data.X_train, self.data.X_train],
-                                          self.data.y_train,
+            self.history = self.model.fit([self.model_data.X_train, self.model_data.X_train],
+                                          self.model_data.y_train,
                                           epochs=self.epochs,
                                           batch_size=self.batch_size,
                                           shuffle=self.shuffle,
@@ -527,7 +557,7 @@ class Model(BaseModel):
                                           verbose=self.verbose,
                                           callbacks=self.callbacks
                                           )
-            if persist:
+            if self.persist:
                 if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
                     os.mkdir(os.path.join(os.getcwd(), 'models'))
 
@@ -551,24 +581,26 @@ class Model(BaseModel):
         persist:             Persist model to disk if set to True
         """
 
-        if not self.ensemble or not isinstance(self.model, Iterable):
+        if not self.ensemble_count or not isinstance(self.model, Iterable):
             raise AssertionError('Model stored is not compatible with Ensemble training')
 
-        # validate all params
-        on = self._validate(on, str, ('average', 'maximum', 'add'))
-        persist = self._validate(persist, bool)
+        self.on = on
+        self.persist = persist
 
-        if isinstance(self.model, (Iterable, Sized)):
+        if isinstance(self.model, Sequence):
             if len(self.model) > 1:
                 in_lyr = Input(shape=(1,))
                 mdl_out = [mdl(in_lyr) for mdl in self.model]
-                if on == 'average':
+                if self.on == 'average':
                     outputs = Average()(mdl_out)
-                elif on == 'maximum':
+                    self.ensemble_model = KerasModel(inputs=in_lyr, outputs=outputs)
+                elif self.on == 'maximum':
                     outputs = Maximum()(mdl_out)
-                elif on == 'add':
+                    self.ensemble_model = KerasModel(inputs=in_lyr, outputs=outputs)
+                elif self.on == 'add':
                     outputs = Add()(mdl_out)
-                self.ensemble_model = KerasModel(inputs=in_lyr, outputs=outputs)
+                    self.ensemble_model = KerasModel(inputs=in_lyr, outputs=outputs)
+
                 self.ensemble_model.compile(optimizer='adam',
                                             loss='categorical_crossentropy',
                                             metrics=['accuracy'])
@@ -589,7 +621,6 @@ class Model(BaseModel):
         path:               A str or an Sized or Iterable of str of paths to stored models
         """
 
-        path = self._validate(path, (str, Iterable, Sized))
         try:
             if isinstance(path, str):
                 self.model = load_model(path)
@@ -598,7 +629,7 @@ class Model(BaseModel):
         except (FileNotFoundError, IOError):
             raise ValueError('Path contains invalid paths to models')
 
-    def evaluate(self, batch_size: int) -> None:
+    def evaluate(self, batch_size: int) -> list:
         """
         Evaluates the accuracy of the model
 
@@ -607,26 +638,23 @@ class Model(BaseModel):
         batch_size:          The fractional split of the overall dataset to use for evaluation
         """
 
-        batch_size = self._validate(batch_size, int, range(1, MAX))
+        self.batch_size = batch_size
+        if self.ensemble_count and self.ensemble_count > 1:
+            assert self.ensemble_model is not None, 'Ensemble Training has not been conducted yet, hence no ensemble ' \
+                                                    'model accuracy can be shown.'
 
-        if self.ensemble:
-            sub_models = [sub.evaluate(self.data.X_test, self.data.y_test, batch_size=batch_size) for sub in
-                          self.model]
-            print(f'Submodels Accuracy: {sub_models}')
-
-            if self.ensemble_model is not None:
-                ensemble = self.ensemble_model.evaluate([self.data.X_test for _ in range(self.ensemble_count)],
-                                                        self.data.y_test, batch_size=batch_size)
-                print(f'Ensemble Accuracy: {ensemble}')
-            else:
-                logging.warning('Ensemble Training has not been conducted yet, hence no ensemble model '
-                                'accuracy can be shown.')
+            sub_models = [sub.evaluate(self.model_data.X_test, self.model_data.y_test,
+                                       batch_size=batch_size) for sub in self.model]
+            ensemble = self.ensemble_model.evaluate([self.model_data.X_test for _ in range(self.ensemble_count)],
+                                                    self.model_data.y_test, batch_size=batch_size)
+            print(f'Sub-model Accuracies: {sub_models}\nEnsemble Accuracy: {ensemble}')
+            return [sub_models, ensemble]
         else:
-            if self.model is None:
-                logging.warning('No models have been trained yet')
-            else:
-                single = self.model.evaluate(self.data.X_test, self.data.y_test, batch_size=batch_size)
-                print(f'Single Model Accuracy: {single}')
+            assert self.model is not None, 'No models have been trained yet'
+
+            single = self.model.evaluate(self.model_data.X_test, self.model_data.y_test, batch_size=batch_size)
+            print(f'Single Model Accuracy: {single}')
+            return [single]
 
     def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None) -> np.array:
         """
@@ -638,20 +666,27 @@ class Model(BaseModel):
         interpret:          Optional function to interpret predictions
         """
 
-        to_predict = [self._validate(to_predict, (str, list))]
+        self.to_predict = [to_predict]
 
-        if self.ensemble:
-            if self.ensemble_model is not None:
-                predictions = self.ensemble_model.predict([to_predict for _ in range(self.ensemble_count)])
-            else:
-                logging.warning('Ensemble Training has not been conducted yet.')
+        if self.ensemble_count > 1:
+            assert self.ensemble_model is not None, 'Ensemble Training has not been conducted yet.'
+            predictions = self.ensemble_model.predict([to_predict for _ in range(self.ensemble_count)])
+
+            if interpret is not None:
+                return interpret(predictions)
+
+            return self.model_data.encoder.inverse_transform([np.argmax(predictions)])
         else:
-            if self.model is not None:
-                predictions = self.model.predict(to_predict)
-            else:
-                logging.warning('No models have been trained yet.')
+            assert self.model is not None, 'No models have been trained yet.'
+            predictions = self.model.predict(to_predict)
 
-        if interpret is not None:
-            return interpret(predictions)
+            if interpret is not None:
+                return interpret(predictions)
 
-        return self.data.encoder.inverse_transform([np.argmax(predictions)])
+            return self.model_data.encoder.inverse_transform([np.argmax(predictions)])
+
+
+if __name__ == '__main__':
+    mdl = ModelInput(path=r'C:\Users\User\Documents\Github\Planner\assets\sample_files\test_classification.csv',
+                     format='csv', on_error='raise')
+    trainer = ModelTrainer(model_data=mdl, ensemble_count=0)

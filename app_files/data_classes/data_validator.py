@@ -5,8 +5,9 @@ import logging
 import numpy as np
 import pickle
 
+from tensorflow.keras import utils
 from sklearn.preprocessing import LabelEncoder
-from pydantic import BaseModel, ValidationError, validator, root_validator, StrictInt, StrictFloat
+from pydantic import *
 from typing import *
 
 
@@ -15,23 +16,26 @@ class IterableMap(BaseModel):
     This class stores any Iterable of Callables, and two other lists of Iterables containing
     strs of the keys for the underlying pandas DataFrames
 
+    Attributes
+    ----------
     func_map:           Sequence/Collection of Callables
     tgt_map:            Sequence/Collection of target columns
     dest_map:           Sequence/Collection of destination columns
     """
-
-    df: pd.DataFrame
-    func_map: Union[Sequence[Callable]]
-    tgt_map: Union[Sequence[Union[int, str]]]
-    dest_map: Optional[Sequence[Union[int, str]]] = None
 
     class Config:
         title = 'IterableMap'
         arbitrary_types_allowed = True
         validate_all = True
         smart_union = True
+        validate_assignment = True
 
-    @validator('df', always=True)
+    df: pd.DataFrame
+    func_map: Union[Sequence[Callable]]
+    tgt_map: Union[Sequence[Union[int, str]]]
+    dest_map: Optional[Sequence[Union[int, str]]] = None
+
+    @validator('df')
     def assert_filled(cls, v):
         if isinstance(v, pd.DataFrame) and not v.empty:
             return v
@@ -94,17 +98,11 @@ class IterableDrop(BaseModel):
         arbitrary_types_allowed = True
         allow_mutation = True
         smart_union = True
+        validate_assignment = True
 
     df: pd.DataFrame
     tgt_map: Union[Sequence[Union[int, str]]]
-    axis: StrictInt
-
-    @validator('axis', always=True)
-    def assert_normalized(cls, v):
-        if v == 0 or v == 1:
-            return v
-        else:
-            raise ValueError('axis argument must be 0 or 1')
+    axis: conint(ge=0, le=1)
 
     @root_validator
     def assert_valid_col_names(cls, values):
@@ -118,11 +116,11 @@ class IterableDrop(BaseModel):
         """Drops columns from input DataFrame inplace"""
 
         for it in self.tgt_map:
-            self.df.drop(labels=it, axis=axis, inplace=True)
+            self.df.drop(labels=it, axis=self.axis, inplace=True)
         return self.df
 
 
-class Input(BaseModel):
+class ModelInput(BaseModel):
     """
     This class allows for the verification and manipulation of input data for the model
 
@@ -150,6 +148,7 @@ class Input(BaseModel):
         arbitrary_types_allowed = True
         allow_mutation = True
         smart_union = True
+        validate_assignment = True
 
     path: Union[os.PathLike, str, Union[Sequence[os.PathLike], Sequence[str]]]
     format: str
@@ -164,7 +163,7 @@ class Input(BaseModel):
     y_train: Optional[Any]
     y_test: Optional[Any]
     encoder: Optional[LabelEncoder]
-    train_test_split: StrictFloat = 0.8
+    train_test_split: confloat(gt=0., lt=1.) = 0.8
 
     def __init__(self, X: Optional[np.ndarray] = None, y: Optional[np.ndarray] = None,
                  X_train: Optional[np.ndarray] = None, X_test: Optional[np.ndarray] = None,
@@ -181,7 +180,7 @@ class Input(BaseModel):
         self.encoder = encoder
         self.read()
 
-    @validator('path', always=True)
+    @validator('path')
     def validate_path(cls, v):
         """Validates the path input for type validity and value validity"""
 
@@ -201,38 +200,23 @@ class Input(BaseModel):
         else:
             raise TypeError('Path is not Pathlike object or str')
 
-    @validator('format', always=True)
+    @validator('format')
     def validate_format(cls, v):
         """Validates the input file format against a list of predetermined strings"""
 
-        if isinstance(v, str):
-            if v in ['csv', 'xlsx', 'json']:
-                return v
-            else:
-                raise ValueError(f'Format {v} is not recognised')
+        if v in ['csv', 'xlsx', 'json']:
+            return v
         else:
-            raise TypeError(f'File format {v} is not of type str')
+            raise ValueError(f'Format {v} is not recognised')
 
-    @validator('on_error', always=True)
+    @validator('on_error')
     def validate_error(cls, v):
         """Validates on_error argument against a list of predetermined strings"""
 
-        if isinstance(v, str):
-            if v in ['ignore', 'default', 'raise']:
-                return v
-            else:
-                raise ValueError(f'Format {v} is not recognised')
-        else:
-            raise TypeError(f'File format {v} is not of type str')
-
-    @validator('train_test_split', always=True)
-    def validate_train_test(cls, v):
-        """Validates the train_test_split variable to be between 0 to 1"""
-
-        if 0 < v < 1:
+        if v in ['ignore', 'default', 'raise']:
             return v
         else:
-            raise ValueError('train_test_split must be between 0 to 1 (not inclusive)')
+            raise ValueError(f'Format {v} is not recognised')
 
     def read(self) -> None:
         """
@@ -291,7 +275,7 @@ class Input(BaseModel):
             if self.on_error == 'ignore':
                 logging.warning('Dataset is passed as an Exception was encountered while processing the dataset')
             elif self.on_error == 'default':
-                # silence exception and default to nothing
+                # silence exception and loggers, and do nothing
                 pass
             elif self.on_error == 'raise':
                 raise ex
@@ -386,7 +370,7 @@ class Input(BaseModel):
 
 
 if __name__ == '__main__':
-    inputs = Input(path=os.getcwd(), format='csv', on_error='ignore')
+    inputs = ModelInput(path=os.getcwd(), format='csv', on_error='ignore')
     print('X: ', inputs.X)
     print('path: ', inputs.path)
     print('format: ', inputs.format)
