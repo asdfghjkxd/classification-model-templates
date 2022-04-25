@@ -19,6 +19,41 @@ from keras.callbacks import EarlyStopping, ModelCheckpoint
 
 
 class Model(BaseModel):
+    """
+    This class allows for the validation and manipulation of model parameters
+
+    Attributes
+    ----------
+    > Globals
+    MAX:                    Maximum global integer
+    MAX_TOKENS:             Maximum number of tokens for the text vectorisation layer
+    MAX_PADDING:            Maximum number of tokens to pad inputs up to
+
+    > Mandatory
+    data:                   Input validator class (encapsulates the data)
+    ensemble:               Flag to create ensemble models
+    ensemble_count:         Integer number to determine the number of ensemble models to instantiate
+
+    > Optional (to be defined in later methods)
+    model:                  Tensorflow Sequential class
+    file_counter:           Integer file counter to start from
+    history:                Historical data from training the model
+    ensemble_model:         Optional Tensorflow Model class for the ensemble model
+    dropout:                Float representing the fraction of dropout for the Dropout layer
+    hidden_layers:          Integer number of hidden Dense layers
+    neurons:                Sequence of integers or an integer representing the number of neurons per dense layer
+    verbose:                Level of debug/printing for Model fitting
+    epochs:                 Integer number of epochs to train the model for
+    batch_size:             Integer number for batch sizing for training
+    shuffle:                Boolean flag to determine whether to randomly shuffle the input data
+    validation_split:       Float determining the ratio of train-validation split for training
+    callbacks:              A Sequence of keras.callbacks
+    vectorise:              pass
+    model_type:             String representing the type of model to instantiate and train
+    patience:               Integer number for the number of epochs to continue training after no improvements to the
+                            benchmark training statistics
+    tuner:                  Tensorflow model optimizer
+    """
 
     class Config:
         title = 'ModelConfig'
@@ -48,8 +83,7 @@ class Model(BaseModel):
     vectorise: Optional[Any] = None
     model_type: Optional[Any] = None
     patience: Optional[Any] = None
-    tuner: Optional[Any] = None
-    to_map: Optional[bool] = False
+    tuner: Optional[kt.Hyperband] = None
     
     def __init__(self, ensemble: bool = False, ensemble_count: Optional[int] = None, **kwargs):
         super().__init__(**kwargs)
@@ -72,7 +106,6 @@ class Model(BaseModel):
         self.model_type = None
         self.patience = None
         self.tuner = None
-        self.to_map = False
 
     @validator('data', always=True)
     def assert_processed(cls, v):
@@ -100,7 +133,7 @@ class Model(BaseModel):
         else:
             raise AssertionError('model_type parameter invalid')
 
-    def instantiate(self, hidden_layers: int, neurons_per_layer: Union[Iterable[int], int], dropout_threshold: float,
+    def instantiate(self, hidden_layers: int, neurons_per_layer: Union[Sequence[int], int], dropout_threshold: float,
                     validation_split: float, model_type: str = 'RNN', epochs: int = 10, batch_size: int = 1,
                     shuffle: bool = True, verbose: int = 1, patience: int = 10):
         """
@@ -180,11 +213,9 @@ class Model(BaseModel):
 
         # validate training params
         if isinstance(neurons, int):
-            self.to_map = False
             self.hidden_layers = hidden
             self.neurons = neurons
-        elif isinstance(neurons, Iterable) and not isinstance(neurons, str):
-            self.to_map = True
+        elif isinstance(neurons, Sequence) and not isinstance(neurons, str):
             if len(neurons) < hidden:
                 # pad to number of hidden layers
                 to_pad = hidden - len(neurons)
