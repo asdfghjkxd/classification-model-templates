@@ -387,10 +387,10 @@ class Model:
         logging.info('Hypermodel successfully trained')
 
         if persist:
-            if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
-                os.mkdir(os.path.join(os.getcwd(), 'models'))
+            if not os.path.isdir(os.path.join(os.getcwd(), '../models')):
+                os.mkdir(os.path.join(os.getcwd(), '../models'))
 
-            self.model.save(os.path.join(os.getcwd(), 'models', f'optimized_model_{self.file_counter}'))
+            self.model.save(os.path.join(os.getcwd(), '../models', f'optimized_model_{self.file_counter}'))
             self.file_counter += 1
             logging.info('Model saved')
 
@@ -423,10 +423,10 @@ class Model:
                                                           callbacks=self.callbacks
                                                           ))
                     if persist:
-                        if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
-                            os.mkdir(os.path.join(os.getcwd(), 'models'))
+                        if not os.path.isdir(os.path.join(os.getcwd(), '../models')):
+                            os.mkdir(os.path.join(os.getcwd(), '../models'))
 
-                        self.model[i].save(os.path.join(os.getcwd(), 'models', f'model_{self.file_counter}'))
+                        self.model[i].save(os.path.join(os.getcwd(), '../models', f'model_{self.file_counter}'))
                         self.file_counter += 1
                     logging.info(f'Model {i} successfully trained!')
 
@@ -446,10 +446,10 @@ class Model:
                                               callbacks=self.callbacks
                                               )
                 if persist:
-                    if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
-                        os.mkdir(os.path.join(os.getcwd(), 'models'))
+                    if not os.path.isdir(os.path.join(os.getcwd(), '../models')):
+                        os.mkdir(os.path.join(os.getcwd(), '../models'))
 
-                    self.model.save(os.path.join(os.getcwd(), 'models', f'model_{self.file_counter}'))
+                    self.model.save(os.path.join(os.getcwd(), '../models', f'model_{self.file_counter}'))
                     self.file_counter += 1
                 logging.info(f'Model successfully trained!')
         else:
@@ -463,10 +463,10 @@ class Model:
                                           callbacks=self.callbacks
                                           )
             if persist:
-                if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
-                    os.mkdir(os.path.join(os.getcwd(), 'models'))
+                if not os.path.isdir(os.path.join(os.getcwd(), '../models')):
+                    os.mkdir(os.path.join(os.getcwd(), '../models'))
 
-                self.model.save(os.path.join(os.getcwd(), 'models', f'model_{self.file_counter}'))
+                self.model.save(os.path.join(os.getcwd(), '../models', f'model_{self.file_counter}'))
                 self.file_counter += 1
             logging.info(f'Model successfully trained!')
 

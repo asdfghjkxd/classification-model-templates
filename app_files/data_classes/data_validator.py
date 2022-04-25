@@ -35,14 +35,14 @@ class IterableMap(BaseModel):
     tgt_map: Union[Sequence[Union[int, str]]]
     dest_map: Optional[Sequence[Union[int, str]]] = None
 
-    @validator('df')
+    @validator('df', allow_reuse=True)
     def assert_filled(cls, v):
         if isinstance(v, pd.DataFrame) and not v.empty:
             return v
         else:
             raise TypeError('df must be a filled DataFrame')
 
-    @root_validator
+    @root_validator(allow_reuse=True)
     def assert_equal_dims(cls, values):
         func, tgt, dest = values.get('func_map'), values.get('tgt_map'), values.get('dest_map')
         if dest is not None:
@@ -58,7 +58,7 @@ class IterableMap(BaseModel):
                 raise AssertionError(f'Dimensions of func_map and tgt_map. Offending dim: '
                                      f'{max(map(lambda x: len(x), (func, tgt)))}')
 
-    @root_validator
+    @root_validator(allow_reuse=True)
     def assert_valid_col_names(cls, values):
         df, tgt = values.get('df'), values.get('tgt_map')
         for t in tgt:
@@ -104,7 +104,7 @@ class IterableDrop(BaseModel):
     tgt_map: Union[Sequence[Union[int, str]]]
     axis: conint(ge=0, le=1)
 
-    @root_validator
+    @root_validator(allow_reuse=True)
     def assert_valid_col_names(cls, values):
         df, col_names = values.get('df'), values.get('tgt_map')
         for col in col_names:
@@ -180,7 +180,7 @@ class ModelInput(BaseModel):
         self.encoder = encoder
         self.read()
 
-    @validator('path')
+    @validator('path', allow_reuse=True)
     def validate_path(cls, v):
         """Validates the path input for type validity and value validity"""
 
@@ -200,7 +200,7 @@ class ModelInput(BaseModel):
         else:
             raise TypeError('Path is not Pathlike object or str')
 
-    @validator('format')
+    @validator('format', allow_reuse=True)
     def validate_format(cls, v):
         """Validates the input file format against a list of predetermined strings"""
 
@@ -209,7 +209,7 @@ class ModelInput(BaseModel):
         else:
             raise ValueError(f'Format {v} is not recognised')
 
-    @validator('on_error')
+    @validator('on_error', allow_reuse=True)
     def validate_error(cls, v):
         """Validates on_error argument against a list of predetermined strings"""
 

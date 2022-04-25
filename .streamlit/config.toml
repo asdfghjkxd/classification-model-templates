@@ -1,0 +1,8 @@
+[global]
+disableWatchdogWarning = true
+
+[server]
+runOnSave = true
+port = 8501
+maxUploadSize = 1024000
+maxMessageSize = 1024000
