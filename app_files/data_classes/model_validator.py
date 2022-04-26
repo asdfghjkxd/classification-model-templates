@@ -2,8 +2,8 @@ import datetime
 import tensorflow as tf
 import keras_tuner as kt
 
-from data_validator import *
-from config_validator import GLOBALS
+from .data_validator import *
+from .config_validator import GLOBALS
 from typing import *
 from pydantic import *
 from tensorflow.keras import utils
@@ -121,7 +121,7 @@ class ModelTrainer(BaseModel):
         self.vectorise = None
         self.verbose = None
 
-    @root_validator
+    @root_validator(allow_reuse=True)
     def assert_ensemble(cls, values):
         ensemble, count = values.get('ensemble'), values.get('ensemble_count')
 
@@ -133,14 +133,14 @@ class ModelTrainer(BaseModel):
 
         return values
 
-    @validator('model_type')
+    @validator('model_type', allow_reuse=True)
     def assert_model_type(cls, v):
         if v in ['Simple', 'RNN', 'BiLSTM'] or v is None:
             return v
         else:
             raise AssertionError('model_type parameter invalid')
 
-    @root_validator
+    @root_validator(allow_reuse=True)
     def assert_neurons(cls, values):
         _min, _max = values.get('min_neuron'), values.get('max_neuron')
         if not any(map(lambda x: x is None, (_min, _max))):
@@ -149,14 +149,14 @@ class ModelTrainer(BaseModel):
 
         return values
 
-    @validator('on')
+    @validator('on', allow_reuse=True)
     def assert_on_ensemble(cls, v):
         if v in ['average', 'maximum', 'add'] or v is None:
             return v
         else:
             raise ValueError('on must of of values ["average", "maximum", "add"]')
 
-    @validator('data', always=True, check_fields=False)
+    @validator('data', always=True, check_fields=False, allow_reuse=True)
     def assert_processed(cls, v):
         if v.is_processed():
             return v

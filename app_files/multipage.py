@@ -22,7 +22,7 @@ class MultiPage:
         # SAVE FUNCTIONS TO SESSION STATE TO PRESERVE FUNCTIONS ACROSS RERUNS
         if 'pages' not in st.session_state:
             st.session_state.pages = [{'title': 'Data Processing', 'function': data_page.page},
-                                      {'title': 'Model Data Processing', 'function': model_page.page}]
+                                      {'title': 'Model Builder', 'function': model_page.page}]
 
         if 'data' not in st.session_state:
             st.session_state.data = None

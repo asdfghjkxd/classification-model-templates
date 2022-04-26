@@ -32,22 +32,25 @@ def page():
     if len(paths) < 1:
         st.warning('No files have been uploaded')
     else:
-        st.info(f'{len(paths)} file(s) uploaded!')
+        st.info(f'**{len(paths)}** file(s) uploaded!')
 
     st.subheader('Other Parameters')
-    on_error = st.selectbox(label='Choose behaviour on exception', options=['raise', 'ignore', 'default'],
-                            help='Specifies the behaviour of the app should exceptions occur')
-    args = st_tags(label='Enter in positional arguments to pass into file reader function', key='args')
-    st.info(f'Positional arguments accepted: {args}')
+    st.markdown('The following dropdown box contains some of the other optional parameters you can define '
+                'for the reading and parsing of the input data.')
+    with st.expander('Define exception handling behaviour, optional positional arguments and keyword arguments'):
+        on_error = st.selectbox(label='Choose behaviour on exception', options=['raise', 'ignore', 'default'],
+                                help='Specifies the behaviour of the app should exceptions occur')
+        args = st_tags(label='Enter in positional arguments to pass into file reader function', key='args')
+        st.info(f'**Positional arguments accepted:** {args}')
 
-    kwargs = st_ace(value='{}', language='python', auto_update=False, key='kwarg')
-    if kwargs:
-        try:
-            kwargs_parsed = json.loads(kwargs)
-        except Exception as ex:
-            st.error(ex)
-        else:
-            st.info(f'Keyword arguments accepted: {kwargs_parsed}')
+        kwargs = st_ace(value='{}', language='python', auto_update=False, key='kwarg')
+        if kwargs:
+            try:
+                kwargs_parsed = json.loads(kwargs)
+            except Exception as ex:
+                st.error(ex)
+            else:
+                st.info(f'**Keyword arguments accepted:** {kwargs_parsed}')
 
     if not st.session_state.loaded:
         if st.button('Load and parse data'):
@@ -63,7 +66,7 @@ def page():
                     st.success('Data loaded and parsed!')
                     st.session_state.loaded = True
                 else:
-                    # DEBUGGING PASSTHROUGH: TO DELETE ONCE DONE
+                    # TODO: DEBUGGING PASSTHROUGH: TO DELETE ONCE DONE
                     st.session_state.loaded = True
                     st.error('Data not loaded or parsed')
 
@@ -113,8 +116,8 @@ def page():
             with st.form('Application of Functions to Dataset'):
                 st.markdown('### Application')
                 funcs = st_ace(value='[]', language='python', key='apply', auto_update=False)
-                st.warning('WARNING: eval() is used for converting your Sequence type input to the correct format '
-                           'used for parsing later on. You are warned that this method allows arbitrary code '
+                st.warning('**WARNING:** *eval()* is used for converting your Sequence type input to the correct '
+                           'format used for parsing later on. You are warned that this method allows arbitrary code '
                            'execution and SHOULD NOT be misused to avoid errors.')
                 tgt = st_tags(label='Target Columns', key='targets')
                 dest = st_tags(label='Destination Columns', key='destinations')
@@ -126,7 +129,7 @@ def page():
                         st.error(ex)
                     else:
                         if isinstance(funcs_parsed, Sequence):
-                            st.info(f'Function map accepted: {funcs_parsed}')
+                            st.info(f'**Function map accepted:** {funcs_parsed}')
                             st.session_state.applied = True
                         else:
                             st.error('Inputs is not a valid Sequence')
@@ -154,4 +157,4 @@ def page():
                     except Exception as ex:
                         st.error(ex)
                     else:
-                        st.success(f'Data columns: {cols} dropped.')
+                        st.success(f'Data columns: **{cols}** dropped.')
