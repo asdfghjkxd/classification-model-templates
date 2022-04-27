@@ -261,7 +261,7 @@ class ModelTrainer(BaseModel):
             raise ValueError('Neuron count input is invalid')
 
         self.batch_size = batch_size
-        self.dropout_threshold = dropout_threshold
+        self.dropout = dropout_threshold
         self.epochs = epochs
         self.model_type = model_type
         self.shuffle = shuffle

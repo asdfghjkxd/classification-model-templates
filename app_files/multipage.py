@@ -47,6 +47,7 @@ class MultiPage:
         page = st.sidebar.selectbox('Functions',
                                     st.session_state.pages,
                                     format_func=lambda page: page['title'])
+
         # RUN THE APP
         try:
             page['function']()

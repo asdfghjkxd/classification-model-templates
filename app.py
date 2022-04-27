@@ -1,9 +1,7 @@
 """File to execute the app"""
 
 from app_files.multipage import MultiPage
-app = MultiPage()
 
-try:
-    app.run()
-except ValueError:
+if __name__ == '__main__':
+    app = MultiPage()
     app.run()
