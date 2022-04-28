@@ -1,7 +1,12 @@
 import datetime
 import tensorflow as tf
 import keras_tuner as kt
+import tensorflow_hub as hub
+import bert
+from bert import run_classifier_with_tfhub, optimization, tokenization, modeling
 
+
+from utils.utils import *
 from .data_validator import *
 from .config_validator import GLOBALS
 from typing import *
@@ -53,6 +58,7 @@ class ModelTrainer(BaseModel):
     validation_split:       Float determining the ratio of train-validation split for training
     vectorise:              pass
     verbose:                Level of debug/printing for Model fitting
+    bert_vectorizer:        Vectorizer for BERT
     """
 
     class Config:
@@ -68,7 +74,7 @@ class ModelTrainer(BaseModel):
     MAX_TOKENS: conint(ge=1, le=GLOBALS['MAX_TOKENS']) = GLOBALS['MAX_TOKENS']
     USE_TENSORBOARD: bool = GLOBALS['USE_TENSORBOARD']
     batch_size: Optional[conint(le=MAX, ge=1)] = None
-    callbacks: Optional[Sequence[Union[EarlyStopping, ModelCheckpoint]]] = None
+    callbacks: Optional[Sequence[Union[EarlyStopping, ModelCheckpoint, TensorBoard]]] = None
     dropout: Optional[confloat(gt=0., lt=1.)] = None
     ensemble_count: conint(strict=True, ge=0, le=MAX)
     ensemble_model: Optional[tf.keras.Sequential] = None
@@ -93,6 +99,7 @@ class ModelTrainer(BaseModel):
     validation_split: Optional[confloat(gt=0., lt=1.)] = None
     vectorise: Optional[TextVectorization] = None
     verbose: Optional[conint(le=3, ge=0)] = None
+    bert_vectorizer: Optional[Any] = None
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -120,6 +127,7 @@ class ModelTrainer(BaseModel):
         self.validation_split = None
         self.vectorise = None
         self.verbose = None
+        self.bert_vectorizer = None
 
     @root_validator(allow_reuse=True)
     def assert_ensemble(cls, values):
@@ -135,7 +143,8 @@ class ModelTrainer(BaseModel):
 
     @validator('model_type', allow_reuse=True)
     def assert_model_type(cls, v):
-        if v in ['Simple', 'RNN', 'BiLSTM'] or v is None:
+        if v in ['Simple', 'RNN', 'BiLSTM', 'Base Uncased BERT', 'Large Uncased BERT',
+                 'Base Cased Bert', 'Large Cased Bert'] or v is None:
             return v
         else:
             raise AssertionError('model_type parameter invalid')
@@ -193,50 +202,70 @@ class ModelTrainer(BaseModel):
                                                output_sequence_length=self.MAX_PADDING)
             self.vectorise.adapt(self.model_data.X)
 
-            # create model now
-            model = Sequential()
-            model.add(Input(shape=(1,), dtype=tf.string))
-            model.add(self.vectorise)
+            if self.model_type not in ['Base BERT', 'Large BERT']:
+                # create model now
+                model = Sequential()
+                model.add(Input(shape=(1,), dtype=tf.string))
+                model.add(self.vectorise)
 
-            if self.model_type == 'Simple':
-                # create the hidden layers
-                for lyr in range(self.hidden_layers):
-                    if isinstance(self.neurons, Sequence):
-                        model.add(Dense(self.neurons[lyr], activation='relu'))
-                    else:
-                        model.add(Dense(self.neurons, activation='relu'))
-                    model.add(Dropout(self.dropout))
-            elif self.model_type == 'RNN':
-                model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                                    output_dim=self.neurons,
-                                    mask_zero=True))
-                model.add(Bidirectional(LSTM(self.neurons)))
-                for lyr in range(self.hidden_layers):
-                    if isinstance(self.neurons, Sequence):
-                        model.add(Dense(self.neurons[lyr], activation='relu'))
-                    else:
-                        model.add(Dense(self.neurons, activation='relu'))
-                    model.add(Dropout(self.dropout))
-            elif self.model_type == 'BiLSTM':
-                model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
-                                    output_dim=self.neurons,
-                                    mask_zero=True))
-                model.add(Bidirectional(LSTM(self.neurons, return_sequences=True)))
-                model.add(Bidirectional(LSTM(int(self.neurons / 2))))
-                for lyr in range(self.hidden_layers):
-                    if isinstance(self.neurons, Sequence):
-                        model.add(Dense(self.neurons[lyr], activation='relu'))
-                    else:
-                        model.add(Dense(self.neurons, activation='relu'))
-                    model.add(Dropout(self.dropout))
+                if self.model_type == 'Simple':
+                    # create the hidden layers
+                    for lyr in range(self.hidden_layers):
+                        if isinstance(self.neurons, Sequence):
+                            model.add(Dense(self.neurons[lyr], activation='relu'))
+                        else:
+                            model.add(Dense(self.neurons, activation='relu'))
+                        model.add(Dropout(self.dropout))
+                elif self.model_type == 'RNN':
+                    model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
+                                        output_dim=self.neurons,
+                                        mask_zero=True))
+                    model.add(Bidirectional(LSTM(self.neurons)))
+                    for lyr in range(self.hidden_layers):
+                        if isinstance(self.neurons, Sequence):
+                            model.add(Dense(self.neurons[lyr], activation='relu'))
+                        else:
+                            model.add(Dense(self.neurons, activation='relu'))
+                        model.add(Dropout(self.dropout))
+                elif self.model_type == 'BiLSTM':
+                    model.add(Embedding(input_dim=len(self.vectorise.get_vocabulary()),
+                                        output_dim=self.neurons,
+                                        mask_zero=True))
+                    model.add(Bidirectional(LSTM(self.neurons, return_sequences=True)))
+                    model.add(Bidirectional(LSTM(int(self.neurons / 2))))
+                    for lyr in range(self.hidden_layers):
+                        if isinstance(self.neurons, Sequence):
+                            model.add(Dense(self.neurons[lyr], activation='relu'))
+                        else:
+                            model.add(Dense(self.neurons, activation='relu'))
+                        model.add(Dropout(self.dropout))
 
-            model.add(Dense(self.model_data.y.shape[1], activation='softmax'))
+                model.add(Dense(self.model_data.y.shape[1], activation='softmax'))
 
-            # compile model and return
-            model.compile(optimizer='adam',
-                          loss='categorical_crossentropy',
-                          metrics=['accuracy'])
-            return model
+                # compile model and return
+                model.compile(optimizer='adam',
+                              loss='categorical_crossentropy',
+                              metrics=['accuracy'])
+                return model
+            elif self.model_type == 'Base Uncased BERT':
+                # TODO
+                URL = 'https://tfhub.dev/tensorflow/bert_en_uncased_L-12_H-768_A-12/4'
+                self.tokenizer = run_classifier_with_tfhub.create_tokenizer_from_hub_module(bert_hub_module_handle=URL)
+
+            elif self.model_type == 'Large Uncased BERT':
+                # TODO
+                URL = 'https://tfhub.dev/tensorflow/bert_en_uncased_L-24_H-1024_A-16/4'
+                self.tokenizer = run_classifier_with_tfhub.create_tokenizer_from_hub_module(bert_hub_module_handle=URL)
+
+            elif self.model_type == 'Base Cased Bert':
+                # TODO
+                URL = 'https://tfhub.dev/tensorflow/bert_en_cased_L-12_H-768_A-12/4'
+                self.tokenizer = run_classifier_with_tfhub.create_tokenizer_from_hub_module(bert_hub_module_handle=URL)
+
+            elif self.model_type == 'Large Cased Bert':
+                # TODO
+                URL = 'https://tfhub.dev/tensorflow/bert_en_cased_L-24_H-1024_A-16/4'
+                self.tokenizer = run_classifier_with_tfhub.create_tokenizer_from_hub_module(bert_hub_module_handle=URL)
 
         if isinstance(neurons_per_layer, int):
             self.hidden_layers = hidden_layers
@@ -267,33 +296,10 @@ class ModelTrainer(BaseModel):
         self.shuffle = shuffle
         self.validation_split = validation_split
         self.verbose = verbose
+        self.patience = patience
 
-        if self.USE_TENSORBOARD:
-            self.callbacks = [
-                EarlyStopping(monitor='val_loss',
-                              mode='min',
-                              patience=patience,
-                              restore_best_weights=True),
-                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
-                                monitor='accuracy',
-                                save_weights_only=True,
-                                save_best_only=True,
-                                save_freq=5),
-                TensorBoard(log_dir=f'../../logs/fit/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
-                            histogram_freq=1)
-            ]
-        else:
-            self.callbacks = [
-                EarlyStopping(monitor='val_loss',
-                              mode='min',
-                              patience=patience,
-                              restore_best_weights=True),
-                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
-                                monitor='accuracy',
-                                save_weights_only=True,
-                                save_best_only=True,
-                                save_freq=5)
-            ]
+        # set callbacks for the entire training function
+        set_callbacks(self)
 
         # init models for training
         if self.ensemble_count and self.ensemble_count > 1:
@@ -358,32 +364,9 @@ class ModelTrainer(BaseModel):
         self.verbose = verbose
         self.patience = patience
         self.persist = persist
-        if self.USE_TENSORBOARD:
-            self.callbacks = [
-                EarlyStopping(monitor='val_loss',
-                              mode='min',
-                              patience=patience,
-                              restore_best_weights=True),
-                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
-                                monitor='accuracy',
-                                save_weights_only=True,
-                                save_best_only=True,
-                                save_freq=5),
-                TensorBoard(log_dir=f'../../logs/fit/{datetime.datetime.now().strftime("%Y%m%d-%H%M%S")}',
-                            histogram_freq=1)
-            ]
-        else:
-            self.callbacks = [
-                EarlyStopping(monitor='val_loss',
-                              mode='min',
-                              patience=patience,
-                              restore_best_weights=True),
-                ModelCheckpoint(filepath=f'../../models/checkpoints/checkpoints_model_{self.file_counter}',
-                                monitor='accuracy',
-                                save_weights_only=True,
-                                save_best_only=True,
-                                save_freq=5)
-            ]
+
+        # set callbacks for the entire optimization function
+        set_callbacks(self)
 
         def _tune(hypertrainer):
             """

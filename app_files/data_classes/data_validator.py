@@ -4,6 +4,7 @@ import sklearn.model_selection as prep
 import logging
 import numpy as np
 import pickle
+from uuid import uuid4
 
 from tensorflow.keras import utils
 from sklearn.preprocessing import LabelEncoder
@@ -11,6 +12,9 @@ from pydantic import *
 from typing import *
 
 
+# +-------------------------------------------------------------------------------------------------------------------+
+# |                                     BASE CLASSES FOR BASIC TENSORFLOW MODELS                                      |
+# +-------------------------------------------------------------------------------------------------------------------+
 class IterableMap(BaseModel):
     """
     This class stores any Iterable of Callables, and two other lists of Iterables containing
@@ -367,6 +371,54 @@ class ModelInput(BaseModel):
 
         return all(list(map(lambda x: _check(x),
                             (self.data, self.X, self.y, self.X_train, self.X_test, self.y_train, self.y_test))))
+
+
+# +-------------------------------------------------------------------------------------------------------------------+
+# |                                      BASE CLASSES FOR BERT TENSORFLOW MODELS                                      |
+# +-------------------------------------------------------------------------------------------------------------------+
+class BERTExample(BaseModel):
+    class Config:
+        title = 'BERTModelInput'
+        arbitrary_types_allowed = True
+        allow_mutation = True
+        smart_union = True
+        validate_assignment = True
+
+    uniqueID: Union[str, int]
+    seq1: str
+    seq2: Optional[str]
+    labels: Optional[Sequence[Union[str, int]]]
+
+    @staticmethod
+    def generate_examples(data: pd.DataFrame, num_labels: Optional[int] = None, labels_present: bool = True, ):
+        """Generates a Sequence of BERTModelInput as examples"""
+
+        if isinstance(data, pd.DataFrame) and not data.empty:
+            if labels_present:
+                return [BERTExample(uniqueID=d[0], seq1=d[1], labels=d[2:]) for d in data.values]
+            else:
+                if isinstance(num_labels, int) and num_labels > 0:
+                    return [BERTExample(uniqueID=d[0], seq1=d[1],
+                                           labels=[0 for _ in range(num_labels)]) for d in data.values]
+                else:
+                    raise TypeError('Number of labels must be of type <int> and must be > 0')
+        else:
+            raise TypeError('Data input must be a pandas DataFrame and must not be empty')
+
+# TODO
+class BERTModelInput(BaseModel):
+    class Config:
+        title = 'BERTModelInput'
+        arbitrary_types_allowed = True
+        allow_mutation = True
+        smart_union = True
+        validate_assignment = True
+
+    in_ids: Any
+    in_mask: Any
+    in_segment_ids: Any
+    in_label_ids: Any
+    in_real: bool = True
 
 
 if __name__ == '__main__':
