@@ -6,8 +6,7 @@ This file also allows users to set the app config for the app
 
 # IMPORT STREAMLIT
 import streamlit as st
-import app_files.pages.model_page as model_page
-import app_files.pages.data_page as data_page
+from app_files.pages import data_page, model_training_page, model_optimization_page, model_prediction_page
 
 
 # DEFINE THE MULTIPAGE CLASS TO MANAGE THE APPS
@@ -22,7 +21,9 @@ class MultiPage:
         # SAVE FUNCTIONS TO SESSION STATE TO PRESERVE FUNCTIONS ACROSS RERUNS
         if 'pages' not in st.session_state:
             st.session_state.pages = [{'title': 'Data Processing', 'function': data_page.page},
-                                      {'title': 'Model Builder', 'function': model_page.page}]
+                                      {'title': 'Model Builder and Trainer', 'function': model_training_page.page},
+                                      {'title': 'Model Optimizer', 'function': model_optimization_page.page},
+                                      {'title': 'Model Prediction', 'function': model_prediction_page.page}]
 
         if 'data' not in st.session_state:
             st.session_state.data = None

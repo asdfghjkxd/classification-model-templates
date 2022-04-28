@@ -1,7 +1,8 @@
 import json
 import streamlit as st
 
-from ..data_classes.data_validator import *
+from .utils.utils import init_session_state
+# from ..data_classes.data_validator import *
 from streamlit_tags import st_tags
 from streamlit_ace import st_ace
 
@@ -9,13 +10,7 @@ from streamlit_ace import st_ace
 def page():
     """Function which is called to render the page"""
 
-    # add flags to session state
-    if 'input' not in st.session_state:
-        st.session_state.input = None
-    if 'loaded' not in st.session_state:
-        st.session_state.loaded = False
-    if 'applied' not in st.session_state:
-        st.session_state.applied = False
+    init_session_state()
 
     # main page
     st.title('Data Processing')
@@ -52,7 +47,7 @@ def page():
             else:
                 st.info(f'**Keyword arguments accepted:** {kwargs_parsed}')
 
-    if not st.session_state.loaded:
+    if not st.session_state.data_parameters['loaded']:
         if st.button('Load and parse data'):
             try:
                 _in = ModelInput(path=paths, format=ftype.lower(), on_error=on_error,
@@ -62,15 +57,15 @@ def page():
                 st.error(ex)
             else:
                 if _in.data is not None:
-                    st.session_state.input = _in
+                    st.session_state.data_parameters['input'] = _in
                     st.success('Data loaded and parsed!')
-                    st.session_state.loaded = True
+                    st.session_state.data_parameters['loaded'] = True
                 else:
                     # TODO: DEBUGGING PASSTHROUGH: TO DELETE ONCE DONE
-                    st.session_state.loaded = True
+                    st.session_state.data_parameters['loaded'] = True
                     st.error('Data not loaded or parsed')
 
-    if st.session_state.loaded:
+    if st.session_state.data_parameters['loaded']:
         st.markdown('---')
         st.markdown('## Data Cleaning Options')
         st.markdown('Clean up the data using the three supported functions below. You may: split up the dataset '
@@ -78,9 +73,9 @@ def page():
                     'quick and simple calculations on the fly using *Apply*, or remove unwanted columns of data '
                     'using *Drop*.')
         st.info('**Data Status:** '
-                f'{st.session_state.input.is_processed() if st.session_state.input is not None else False}\n\n'
+                f'{st.session_state.data_parameters["input"].is_processed() if st.session_state.data_parameters["input"] is not None else False}\n\n '
                 f'**Data Shape:** '
-                f'{st.session_state.input.is_processed() if st.session_state.input is not None else ()}')
+                f'{st.session_state.data_parameters["input"].is_processed() if st.session_state.data_parameters["input"] is not None else ()}')
 
         things_to_do = st.multiselect('Data Processes', options=['Preprocess', 'Apply', 'Drop'])
 
@@ -88,11 +83,11 @@ def page():
             with st.form('Preprocessing Data'):
                 st.markdown('### Preprocessing')
                 word = st.selectbox('Select column where text is located at',
-                                    options=[col for col in st.session_state.input.data.columns]
-                                    if st.session_state.input is not None else [])
+                                    options=[col for col in st.session_state.data_parameters['input'].data.columns]
+                                    if st.session_state.data_parameters['input'] is not None else [])
                 label = st.selectbox('Select column where the labels are located at',
-                                     options=[col for col in st.session_state.input.data.columns]
-                                     if st.session_state.input is not None else [])
+                                     options=[col for col in st.session_state.data_parameters['input'].data.columns]
+                                     if st.session_state.data_parameters['input'] is not None else [])
                 train_test_split = st.number_input('Ratio of train-test split',
                                                    step=1e-3,
                                                    format="%.3f",
@@ -103,8 +98,8 @@ def page():
                 if st.form_submit_button("Preprocess"):
                     if word != label:
                         try:
-                            st.session_state.input.preprocess(word_col=word, label_col=label,
-                                                              train_test_split=train_test_split)
+                            st.session_state.data_parameters['input'].preprocess(word_col=word, label_col=label,
+                                                                                 train_test_split=train_test_split)
                         except Exception as ex:
                             st.error(ex)
                         else:
@@ -130,15 +125,15 @@ def page():
                     else:
                         if isinstance(funcs_parsed, Sequence):
                             st.info(f'**Function map accepted:** {funcs_parsed}')
-                            st.session_state.applied = True
+                            st.session_state.data_parameters['applied'] = True
                         else:
                             st.error('Inputs is not a valid Sequence')
-                            st.session_state.applied = False
+                            st.session_state.data_parameters['applied'] = False
 
-                if st.session_state.applied:
+                if st.session_state.data_parameters['applied']:
                     if st.form_submit_button("Apply"):
                         try:
-                            st.session_state.input.apply(func_map=funcs, tgt_map=tgt, dest_map=dest)
+                            st.session_state.data_parameters['input'].apply(func_map=funcs, tgt_map=tgt, dest_map=dest)
                         except Exception as ex:
                             st.error(ex)
                         else:
@@ -153,7 +148,7 @@ def page():
 
                 if st.form_submit_button("Drop"):
                     try:
-                        st.session_state.input.drop(tgt_map=cols, axis=axis)
+                        st.session_state.data_parameters['input'].drop(tgt_map=cols, axis=axis)
                     except Exception as ex:
                         st.error(ex)
                     else:
