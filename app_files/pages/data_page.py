@@ -2,7 +2,7 @@ import json
 import streamlit as st
 
 from .utils.utils import init_session_state
-# from ..data_classes.data_validator import *
+from ..data_classes.data_validator import *
 from streamlit_tags import st_tags
 from streamlit_ace import st_ace
 

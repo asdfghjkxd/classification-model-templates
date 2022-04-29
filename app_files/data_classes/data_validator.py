@@ -1,15 +1,17 @@
+import abc
 import os
 import pandas as pd
 import sklearn.model_selection as prep
 import logging
 import numpy as np
 import pickle
-from uuid import uuid4
+import tensorflow as tf
 
 from tensorflow.keras import utils
 from sklearn.preprocessing import LabelEncoder
 from pydantic import *
 from typing import *
+from transformers import AutoTokenizer, DataCollatorWithPadding
 
 
 # +-------------------------------------------------------------------------------------------------------------------+
@@ -124,9 +126,12 @@ class IterableDrop(BaseModel):
         return self.df
 
 
-class ModelInput(BaseModel):
+# +-------------------------------------------------------------------------------------------------------------------+
+# |                                     ABSTRACT BASE CLASS FOR ALL MODEL CLASSES                                     |
+# +-------------------------------------------------------------------------------------------------------------------+
+class AbstractModelInput(BaseModel, abc.ABC):
     """
-    This class allows for the verification and manipulation of input data for the model
+    This is an abstract class to define model inputs
 
     Attributes
     ----------
@@ -160,6 +165,8 @@ class ModelInput(BaseModel):
     args: Optional[Tuple] = ()
     kwargs: Optional[Dict] = {}
     data: Optional[pd.DataFrame]
+    word_col: Optional[str]
+    label_col: Optional[str]
     X: Optional[Any]
     y: Optional[Any]
     X_train: Optional[Any]
@@ -168,21 +175,6 @@ class ModelInput(BaseModel):
     y_test: Optional[Any]
     encoder: Optional[LabelEncoder]
     train_test_split: confloat(gt=0., lt=1.) = 0.8
-
-    def __init__(self, X: Optional[np.ndarray] = None, y: Optional[np.ndarray] = None,
-                 X_train: Optional[np.ndarray] = None, X_test: Optional[np.ndarray] = None,
-                 y_train: Optional[np.ndarray] = None, y_test: Optional[np.ndarray] = None,
-                 encoder: Optional[LabelEncoder] = None, **kwargs):
-        super().__init__(**kwargs)
-        self.data = None
-        self.X = X
-        self.y = y
-        self.X_train = X_train
-        self.X_test = X_test
-        self.y_train = y_train
-        self.y_test = y_test
-        self.encoder = encoder
-        self.read()
 
     @validator('path', allow_reuse=True)
     def validate_path(cls, v):
@@ -222,7 +214,11 @@ class ModelInput(BaseModel):
         else:
             raise ValueError(f'Format {v} is not recognised')
 
-    def read(self) -> None:
+    @abc.abstractmethod
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+    def read(self):
         """
         Method which reads the files and saves it into the class attributes
 
@@ -284,50 +280,9 @@ class ModelInput(BaseModel):
             elif self.on_error == 'raise':
                 raise ex
 
-    def preprocess(self, word_col: str, label_col: str, train_test_split: StrictFloat):
-        """
-        Preprocesses the dataset and splits the dataset into train-test sets
-
-        Extracts out the words column and label column and processes them
-
-        Vectorisation of the dataset will be done during the instantiation of the model,
-        the vectorisation layer is not instantiated here
-        """
-
-        assert isinstance(self.data, pd.DataFrame) and not self.data.empty, 'DataFrame cannot be empty'
-
-        self.train_test_split = train_test_split
-
-        try:
-            # shuffle the dataset
-            self.data = self.data.sample(frac=1).reset_index(drop=True)
-
-            # split by labels
-            to_process = self.data[[word_col, label_col]]
-            y = to_process[label_col]
-            X = to_process[word_col].to_numpy()
-        except KeyError:
-            raise ValueError('Invalid word_col or label_col argument')
-        except Exception as ex:
-            raise ex
-        else:
-            # turn the labels into dummy labels
-            self.encoder = LabelEncoder()
-            self.encoder.fit(y)
-            self.X = X
-            self.y = utils.to_categorical(self.encoder.transform(y))
-
-            # persist encoder
-            with open(f'models/encoders/encoder_model.pkl', 'wb') as f:
-                pickle.dump(self.encoder, f)
-
-            # split by train-test
-            try:
-                self.X_train, self.X_test, self.y_train, self.y_test = prep.train_test_split(
-                    self.X, self.y, train_size=self.train_test_split, random_state=420
-                )
-            except Exception as ex:
-                raise ex
+    @abc.abstractmethod
+    def preprocess(self, *args, **kwargs):
+        raise NotImplementedError
 
     def apply(self, func_map: Union[Sequence[Callable]], tgt_map: Union[Sequence[Union[int, str]]],
               dest_map: Optional[Sequence[Union[int, str]]] = None) -> None:
@@ -356,6 +311,7 @@ class ModelInput(BaseModel):
 
         return self.data.shape if self.data is not None else (0,)
 
+    @abc.abstractmethod
     def is_processed(self) -> bool:
         """Simple check to see if data is properly split and processed"""
 
@@ -373,62 +329,160 @@ class ModelInput(BaseModel):
                             (self.data, self.X, self.y, self.X_train, self.X_test, self.y_train, self.y_test))))
 
 
-# +-------------------------------------------------------------------------------------------------------------------+
-# |                                      BASE CLASSES FOR BERT TENSORFLOW MODELS                                      |
-# +-------------------------------------------------------------------------------------------------------------------+
-class BERTExample(BaseModel):
-    class Config:
-        title = 'BERTModelInput'
-        arbitrary_types_allowed = True
-        allow_mutation = True
-        smart_union = True
-        validate_assignment = True
+class ModelData(AbstractModelInput):
+    """Base Model Data Class for non-BERT based models"""
 
-    uniqueID: Union[str, int]
-    seq1: str
-    seq2: Optional[str]
-    labels: Optional[Sequence[Union[str, int]]]
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.read()
 
-    @staticmethod
-    def generate_examples(data: pd.DataFrame, num_labels: Optional[int] = None, labels_present: bool = True, ):
-        """Generates a Sequence of BERTModelInput as examples"""
+    def preprocess(self, word_col: str, label_col: str, train_test_split: StrictFloat):
+        """
+        Preprocesses the dataset and splits the dataset into train-test sets
 
-        if isinstance(data, pd.DataFrame) and not data.empty:
-            if labels_present:
-                return [BERTExample(uniqueID=d[0], seq1=d[1], labels=d[2:]) for d in data.values]
-            else:
-                if isinstance(num_labels, int) and num_labels > 0:
-                    return [BERTExample(uniqueID=d[0], seq1=d[1],
-                                           labels=[0 for _ in range(num_labels)]) for d in data.values]
-                else:
-                    raise TypeError('Number of labels must be of type <int> and must be > 0')
+        Extracts out the words column and label column and processes them
+
+        Vectorisation of the dataset will be done during the instantiation of the model,
+        the vectorisation layer is not instantiated here
+        """
+
+        assert isinstance(self.data, pd.DataFrame) and not self.data.empty, 'DataFrame cannot be empty'
+
+        self.train_test_split = train_test_split
+
+        try:
+            # shuffle the dataset
+            self.data = self.data.sample(frac=1).reset_index(drop=True)
+
+            # split by labels
+            to_process = self.data[[word_col, label_col]]
+            y = to_process[label_col]
+            X = to_process[word_col].to_numpy()
+        except KeyError:
+            raise ValueError('Invalid word_col or label_col argument')
+        except Exception as ex:
+            raise ex
         else:
-            raise TypeError('Data input must be a pandas DataFrame and must not be empty')
+            # set states for word and label cols
+            self.word_col = word_col
+            self.label_col = label_col
 
-# TODO
-class BERTModelInput(BaseModel):
-    class Config:
-        title = 'BERTModelInput'
-        arbitrary_types_allowed = True
-        allow_mutation = True
-        smart_union = True
-        validate_assignment = True
+            # turn the labels into dummy labels
+            self.encoder = LabelEncoder()
+            self.encoder.fit(y)
+            self.X = X
+            self.y = utils.to_categorical(self.encoder.transform(y))
 
-    in_ids: Any
-    in_mask: Any
-    in_segment_ids: Any
-    in_label_ids: Any
-    in_real: bool = True
+            # persist encoder
+            with open(f'models/encoders/encoder_model.pkl', 'wb') as f:
+                pickle.dump(self.encoder, f)
+
+            # split by train-test
+            try:
+                self.X_train, self.X_test, self.y_train, self.y_test = prep.train_test_split(
+                    self.X, self.y, train_size=self.train_test_split, random_state=420
+                )
+            except Exception as ex:
+                raise ex
+
+    def is_processed(self) -> bool:
+        """Simple check to see if data is properly split and processed"""
+
+        return super().is_processed()
 
 
-if __name__ == '__main__':
-    inputs = ModelInput(path=os.getcwd(), format='csv', on_error='ignore')
-    print('X: ', inputs.X)
-    print('path: ', inputs.path)
-    print('format: ', inputs.format)
-    print('on_error: ', inputs.on_error)
-    print('args: ', inputs.args)
-    print('kwargs', inputs.kwargs)
-    inputs.read()
-    print(inputs.shape())
-    # inputs.preprocess(word_col='0', label_col='1', train_test_split=0.8)
+class BERTModelData(AbstractModelInput):
+    """BERT Model Data"""
+
+    vectorizer: Any = None
+    collator: Optional[DataCollatorWithPadding] = None
+    train_dataset: Optional[tf.data.Dataset] = None
+    test_dataset: Optional[tf.data.Dataset] = None
+    batch_size: Optional[int] = 1
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(kwargs.get('load_from_name'))
+            self.collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
+            self.train_dataset = None
+            self.test_dataset = None
+            self.batch_size = 1
+        except Exception as ex:
+            raise ex
+        else:
+            self.read()
+
+    @validator('batch_size', allow_reuse=True)
+    def assert_valid_batches(cls, v):
+        if isinstance(v, int):
+            if v > 0:
+                return v
+            else:
+                raise ValueError('Batch size cannot be zero or negative')
+        else:
+            raise TypeError('Batch Size must be an int')
+
+    def preprocess(self, word_col: str, label_col: str, train_test_split: StrictFloat,
+                   batch_size: int = 1):
+        """
+        Preprocesses the dataset and splits the dataset into train-test sets
+
+        Extracts out the words column and label column and processes them
+
+        Vectorisation of the dataset will be done during the instantiation of the model,
+        the vectorisation layer is not instantiated here
+        """
+
+        self.train_test_split = train_test_split
+        self.batch_size = batch_size
+        assert isinstance(self.data, pd.DataFrame) and not self.data.empty, 'DataFrame cannot be empty'
+
+        try:
+            # shuffle the dataset
+            self.data = self.data.sample(frac=1).reset_index(drop=True)
+
+            # split by labels
+            to_process = self.data[[word_col, label_col]]
+            y = to_process[label_col]
+            X = to_process[word_col].to_numpy()
+        except KeyError:
+            raise ValueError('Invalid word_col or label_col argument')
+        except Exception as ex:
+            raise ex
+        else:
+            # set states for word and label cols
+            self.word_col = word_col
+            self.label_col = label_col
+
+            # turn the labels into dummy labels
+            self.encoder = LabelEncoder()
+            self.encoder.fit(y)
+            self.X = X
+            self.y = utils.to_categorical(self.encoder.transform(y))
+
+            # persist encoder
+            self.tokenizer.save_pretrained('../../models/tokenizer')
+
+            # split by train-test
+            try:
+                self.X_train, self.X_test, self.y_train, self.y_test = prep.train_test_split(
+                    self.X, self.y, train_size=self.train_test_split, random_state=420
+                )
+            except Exception as ex:
+                raise ex
+            else:
+                self.X_train = self.tokenizer(self.X_train, truncation=True, padding=True)
+                self.X_test = self.tokenizer(self.X_test, truncation=True, padding=True)
+                self.train_dataset = tf.data.Dataset.from_tensor_slices((
+                    self.X_train, self.y_train
+                )).batch(batch_size=self.batch_size)
+                self.test_dataset = tf.data.Dataset.from_tensor_slices((
+                    self.X_test, self.y_test
+                )).batch(batch_size=self.batch_size)
+
+    def is_processed(self) -> bool:
+        """Simple check to see if data is properly split and processed"""
+
+        return super().is_processed()

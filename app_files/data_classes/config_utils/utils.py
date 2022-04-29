@@ -1,6 +1,6 @@
 import datetime
 
-from ..config_validator import GLOBALS
+from .config import GLOBALS
 from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
 
 

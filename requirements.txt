@@ -12,4 +12,4 @@ streamlit-tags~=1.2.8
 streamlit-ace~=0.1.1
 keras~=2.8.0
 tensorflow-hub~=0.12.0
-bert-tensorflow~=1.0.4
+transformers~=4.18.0
