@@ -24,6 +24,11 @@ def page():
                          key='ftype', help='Input File Type')
     paths = st.file_uploader(label='Upload Files', type=ftype, accept_multiple_files=True,
                              key='paths', help='Input files for processing')
+    st.session_state.data_parameters['model_name'] = st.selectbox('Define the type of model to train',
+                                                                  options=['Simple', 'RNN', 'BiLSTM',
+                                                                           'bert-base-uncased', 'bert-base-cased',
+                                                                           'bert-large-uncased', 'bert-large-cased'])
+
     if len(paths) < 1:
         st.warning('No files have been uploaded')
     else:
@@ -50,9 +55,15 @@ def page():
     if not st.session_state.data_parameters['loaded']:
         if st.button('Load and parse data'):
             try:
-                _in = ModelInput(path=paths, format=ftype.lower(), on_error=on_error,
-                                 args=args if len(args) > 0 else None,
-                                 kwargs=kwargs_parsed if len(kwargs_parsed) > 0 else None)
+                if st.session_state.data_parameters['model_name'] in ['Simple', 'RNN', 'BiLSTM']:
+                    _in = ModelData(path=paths, format=ftype.lower(), on_error=on_error,
+                                    args=args if len(args) > 0 else None,
+                                    kwargs=kwargs_parsed if len(kwargs_parsed) > 0 else None)
+                else:
+                    _in = BERTModelData(path=paths, format=ftype.lower(), on_error=on_error,
+                                        load_from_name=st.session_state.data_parameters['model_name'],
+                                        args=args if len(args) > 0 else None,
+                                        kwargs=kwargs_parsed if len(kwargs_parsed) > 0 else None)
             except Exception as ex:
                 st.error(ex)
             else:

@@ -36,6 +36,10 @@ def page():
                 'save the model to your disk or to store it in memory only')
 
     st.markdown('#### Model Structure')
+    if st.session_state.data_parameters['input'] is None:
+        st.info('No Model Data detected')
+    else:
+        st.info(f'Model Data detected: **{st.session_state.data_parameters["model_name"]}**')
     st.session_state.model_parameters['ensemble_count'] = st.number_input('Number of models to create',
                                                                           min_value=0,
                                                                           max_value=99999,
@@ -73,15 +77,6 @@ def page():
                                                                    format='%.3f',
                                                                    value=0.500,
                                                                    key=f'dropout')
-    st.session_state.model_parameters['model_type'] = st.selectbox('Model Type',
-                                                                   options=['Simple', 'RNN', 'BiLSTM'],
-                                                                   key=f'model_type',
-                                                                   help='Simple: A simple network of Input, Dense and '
-                                                                        'Dropout layers\n\n'
-                                                                        'RNN: A Recurrent Neural Network which '
-                                                                        'contains one layer of LSTM\n\n'
-                                                                        'BiLSTM: A Bidirectional RNN which contains 2 '
-                                                                        'Bidirectional LSTM layers')
 
     st.markdown('#### Training Parameters')
     st.session_state.model_parameters['shuffle'] = st.checkbox('Shuffle dataset per training cycle?',
@@ -147,20 +142,70 @@ def page():
                 'Click on the button to begin the construction and building of your model.')
     if st.button('Continue', key='continue'):
         try:
-            st.session_state.model = ModelTrainer(
-                ensemble_count=st.session_state.model_parameters['ensemble_count'],
-                model_data=st.session_state.data_parameters['input'])
-            st.session_state.model.instantiate(hidden_layers=st.session_state.model_parameters['hidden'],
-                                               neurons_per_layer=st.session_state.model_parameters['neurons'],
-                                               dropout_threshold=st.session_state.model_parameters['dropout'],
-                                               validation_split=st.session_state.model_parameters['validation'],
-                                               model_type=st.session_state.model_parameters['model_type'],
-                                               epochs=st.session_state.model_parameters['epochs'],
-                                               batch_size=st.session_state.model_parameters['batch_size'],
-                                               shuffle=st.session_state.model_parameters['shuffle'],
-                                               patience=st.session_state.model_parameters['patience'],
-                                               verbose=st.session_state.model_parameters['verbose'])
-            st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+            if st.session_state.data_parameters['model_name'] == 'Simple':
+                st.session_state.model = SimpleModel(
+                    ensemble_count=st.session_state.model_parameters['ensemble_count'],
+                    model_data=st.session_state.data_parameters['input'])
+                st.session_state.model.instantiate(hidden_layers=st.session_state.model_parameters['hidden'],
+                                                   neurons_per_layer=st.session_state.model_parameters['neurons'],
+                                                   dropout_threshold=st.session_state.model_parameters['dropout'],
+                                                   validation_split=st.session_state.model_parameters['validation'],
+                                                   epochs=st.session_state.model_parameters['epochs'],
+                                                   batch_size=st.session_state.model_parameters['batch_size'],
+                                                   shuffle=st.session_state.model_parameters['shuffle'],
+                                                   patience=st.session_state.model_parameters['patience'],
+                                                   verbose=st.session_state.model_parameters['verbose'])
+                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+            elif st.session_state.data_parameters['model_name'] == 'RNN':
+                st.session_state.model = RNNModel(
+                    ensemble_count=st.session_state.model_parameters['ensemble_count'],
+                    model_data=st.session_state.data_parameters['input'])
+                st.session_state.model.instantiate(hidden_layers=st.session_state.model_parameters['hidden'],
+                                                   neurons_per_layer=st.session_state.model_parameters['neurons'],
+                                                   dropout_threshold=st.session_state.model_parameters['dropout'],
+                                                   validation_split=st.session_state.model_parameters['validation'],
+                                                   epochs=st.session_state.model_parameters['epochs'],
+                                                   batch_size=st.session_state.model_parameters['batch_size'],
+                                                   shuffle=st.session_state.model_parameters['shuffle'],
+                                                   patience=st.session_state.model_parameters['patience'],
+                                                   verbose=st.session_state.model_parameters['verbose'])
+                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+            elif st.session_state.data_parameters['model_name'] == 'BiLSTM':
+                st.session_state.model = BidirectionalRNNModel(
+                    ensemble_count=st.session_state.model_parameters['ensemble_count'],
+                    model_data=st.session_state.data_parameters['input'])
+                st.session_state.model.instantiate(hidden_layers=st.session_state.model_parameters['hidden'],
+                                                   neurons_per_layer=st.session_state.model_parameters['neurons'],
+                                                   dropout_threshold=st.session_state.model_parameters['dropout'],
+                                                   validation_split=st.session_state.model_parameters['validation'],
+                                                   epochs=st.session_state.model_parameters['epochs'],
+                                                   batch_size=st.session_state.model_parameters['batch_size'],
+                                                   shuffle=st.session_state.model_parameters['shuffle'],
+                                                   patience=st.session_state.model_parameters['patience'],
+                                                   verbose=st.session_state.model_parameters['verbose'])
+                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+
+            # TODO: ALLOW INPUT FOR INITIAL TRAINING RATE FOR BERT MODELS
+            elif st.session_state.data_parameters['model_name'] == 'bert-base-uncased':
+                st.session_state.model = BaseUncasedBERTModel(model_data=st.session_state.data_parameters['input'])
+                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
+                                                   batch_size=st.session_state.model_parameters['batch_size'])
+                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+            elif st.session_state.data_parameters['model_name'] == 'bert-base-cased':
+                st.session_state.model = BaseCasedBERTModel(model_data=st.session_state.data_parameters['input'])
+                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
+                                                   batch_size=st.session_state.model_parameters['batch_size'])
+                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+            elif st.session_state.data_parameters['model_name'] == 'bert-large-uncased':
+                st.session_state.model = LargeUncasedBERTModel(model_data=st.session_state.data_parameters['input'])
+                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
+                                                   batch_size=st.session_state.model_parameters['batch_size'])
+                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+            elif st.session_state.data_parameters['model_name'] == 'bert-large-cased':
+                st.session_state.model = LargeUncasedBERTModel(model_data=st.session_state.data_parameters['input'])
+                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
+                                                   batch_size=st.session_state.model_parameters['batch_size'])
+                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
         except Exception as ex:
             raise ex
         else:

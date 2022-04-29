@@ -19,7 +19,6 @@ def init_session_state():
             'neurons': 1,
             'dropout': 0.800,
             'validation': 0.800,
-            'model_type': 'RNN',
             'epochs': 1,
             'batch_size': 1,
             'shuffle': True,
@@ -32,6 +31,7 @@ def init_session_state():
 
     if 'data_parameters' not in st.session_state:
         st.session_state.data_parameters = {
+            'model_name': None,
             'input': None,
             'loaded': False,
             'applied': False
