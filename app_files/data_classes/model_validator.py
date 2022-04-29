@@ -2,12 +2,11 @@ import logging
 import numpy as np
 import tensorflow as tf
 import keras_tuner as kt
-import abc
+from abc import ABC, abstractmethod
 
-
-from config_utils.utils import *
-from config_utils.config import GLOBALS
-from data_validator import *
+from .config_utils.utils import *
+from .config_utils.config import GLOBALS
+from .data_validator import *
 from typing import *
 from pydantic import *
 from tensorflow.keras import utils
@@ -17,14 +16,13 @@ from keras.models import Sequential, load_model
 from keras.layers import Dense, TextVectorization, Dropout, Input, Embedding, \
     Bidirectional, LSTM, Average, Maximum, Add
 from keras.callbacks import EarlyStopping, ModelCheckpoint, TensorBoard
-from transformers import AutoTokenizer, DataCollatorWithPadding, AutoModelForSequenceClassification, \
-    TrainingArguments, Trainer, create_optimizer
+from transformers import AutoTokenizer, DataCollatorWithPadding, AutoModelForSequenceClassification, create_optimizer
 
 
 # +-------------------------------------------------------------------------------------------------------------------+
 # |                                     ABSTRACT BASE CLASS FOR ALL MODEL CLASSES                                     |
 # +-------------------------------------------------------------------------------------------------------------------+
-class AbstractBaseModel(BaseModel, abc.ABC):
+class AbstractBaseModel(BaseModel, ABC):
     """
     This defines the basic attribute and functional contract that all model classes must implement to function
     
@@ -101,7 +99,7 @@ class AbstractBaseModel(BaseModel, abc.ABC):
     file_counter: Optional[int] = 0
     hidden_layers: Optional[int] = None
     history: Optional[Union[Sequence[tf.keras.callbacks.History], tf.keras.callbacks.History]] = None
-    learning_rate: Optional[Sequence[confloat(gt=0., lt=1.)]]
+    learning_rate: Optional[Union[Sequence[confloat(gt=0., lt=1.)], confloat(gt=0., lt=1.)]]
     max_neuron: Optional[conint(le=MAX, gt=0)]
     min_neuron: Optional[conint(le=MAX, gt=0)]
     model: Optional[Union[tf.keras.Sequential, Sequence[tf.keras.Sequential]]] = None
@@ -167,7 +165,7 @@ class AbstractBaseModel(BaseModel, abc.ABC):
         else:
             raise AssertionError('Input Data is not properly processed')
 
-    @abc.abstractmethod
+    @abstractmethod
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.batch_size = None
@@ -195,15 +193,14 @@ class AbstractBaseModel(BaseModel, abc.ABC):
         self.vectorise = None
         self.verbose = None
 
-    @abc.abstractmethod
+    @abstractmethod
     def instantiate(self, *args, **kwargs):
         raise NotImplementedError
 
-    @abc.abstractmethod
+    @abstractmethod
     def optimise(self, *args, **kwargs):
         raise NotImplementedError
 
-    @abc.abstractmethod
     def fit(self, persist: bool = True):
         """
         Fits the model(s) stored
@@ -258,7 +255,6 @@ class AbstractBaseModel(BaseModel, abc.ABC):
                 self.file_counter += 1
             logging.info(f'Model successfully trained!')
 
-    @abc.abstractmethod
     def fit_ensemble(self, on: str = 'average', persist: bool = True):
         """
         Instantiates and fits the ensemble model
@@ -317,7 +313,6 @@ class AbstractBaseModel(BaseModel, abc.ABC):
             self.file_counter += 1
         logging.info(f'Ensemble model successfully trained!')
 
-    @abc.abstractmethod
     def load(self, path: Union[str, Sequence[str], Sequence[os.PathLike]]):
         """
         Loads up a list of models or a single model from a list of paths or a path
@@ -337,7 +332,6 @@ class AbstractBaseModel(BaseModel, abc.ABC):
         except (FileNotFoundError, IOError):
             raise ValueError('Path contains invalid paths to models')
 
-    @abc.abstractmethod
     def evaluate(self, batch_size: int) -> list:
         """
         Evaluates the accuracy of the model
@@ -366,7 +360,6 @@ class AbstractBaseModel(BaseModel, abc.ABC):
             print(f'Single Model Accuracy: {single}')
             return [single]
 
-    @abc.abstractmethod
     def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None) -> np.array:
         """
                 Predicts the label based on the input string
@@ -401,48 +394,76 @@ class AbstractBERTModel(AbstractBaseModel):
     bert_vectorizer: Optional[Any] = None
     bert_data_collator: Optional[DataCollatorWithPadding] = None
 
-    @abc.abstractmethod
+    @abstractmethod
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.ensemble_model = 1
         self.bert_vectorizer = None
         self.bert_data_collator = None
 
-    @abc.abstractmethod
+    @abstractmethod
     def instantiate(self, *args, **kwargs):
-        pass
+        raise NotImplementedError
 
-    @abc.abstractmethod
     def optimise(self, *args, **kwargs):
         logging.warning('BERT Models do not support Ensemble Models')
         return None
 
-    @abc.abstractmethod
-    def fit(self, *args, **kwargs):
-        pass
+    def fit(self, persist: bool = True):
+        """
+        Fits the model(s) stored
 
-    @abc.abstractmethod
+        Parameters
+        ----------
+        persist:                Flag to indicate whether to persist model to disk or not
+        """
+
+        assert self.model is not None, 'You must create a model first before training'
+        self.persist = persist
+        self.history = self.model.fit(x=self.model_data.train_dataset,
+                                      validation=self.model_data.test_dataset,
+                                      epochs=self.epochs)
+
+        if self.persist:
+            if not os.path.isdir(os.path.join(os.getcwd(), 'models')):
+                os.mkdir(os.path.join(os.getcwd(), 'models'))
+
+            self.model.save(os.path.join(os.getcwd(), 'models', f'model_{self.file_counter}'))
+            self.file_counter += 1
+
+        logging.info(f'Model successfully trained!')
+
     def fit_ensemble(self, *args, **kwargs):
         logging.warning('BERT Models do not support Ensemble Models')
         return None
 
-    @abc.abstractmethod
     def load(self, *args, **kwargs):
         logging.warning('BERT Models do not support Ensemble Models')
         return None
 
-    @abc.abstractmethod
     def evaluate(self, *args, **kwargs):
-        pass
+        logging.warning('THIS FUNCTION HAS NOT BEEN IMPLEMENTED YET')
+        return False
 
-    @abc.abstractmethod
-    def predict(self, *args, **kwargs):
-        pass
+    def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None):
+        """
+        Predicts the label based on the input string
+
+        Parameters
+        ----------
+        to_predict:         String to feed into model for predictions
+        interpret:          Optional function to interpret predictions
+        """
+
+        if interpret is not None:
+            return interpret(self.model.predict(to_predict))
+        else:
+            return self.model.predict(to_predict)
 
     def preprocessor(self, example):
         """Preprocessing function"""
 
-        return self.bert_tokenizer(example, trunctation=True)
+        return self.bert_vectorizer(example, trunctation=True)
 
 
 # +-------------------------------------------------------------------------------------------------------------------+
@@ -686,75 +707,6 @@ class SimpleModel(AbstractBaseModel):
             self.model.save(os.path.join(os.getcwd(), 'models', f'optimized_model_{self.file_counter}'))
             self.file_counter += 1
             logging.info('Model saved')
-
-    def fit(self, persist: bool = True):
-        """
-        Fits the model(s) stored, using the abstract method defined in abstract base class
-
-        Ensemble fitting is done with fit_ensemble() function
-
-        Parameters
-        ----------
-        persist:                Flag to indicate whether to persist model to disk or not
-        """
-
-        super().fit(persist=persist)
-
-    def fit_ensemble(self, on: str = 'average', persist: bool = True):
-        """
-        Instantiates and fits the ensemble model, using the abstract method defined in
-        abstract base class
-
-        This function requires an ensemble of models to be trained first, and for the method of
-        ensemble output handling to be specified first
-
-        Parameters
-        ----------
-        on:                  Method to handle the outputs of all the stacked models
-                             > average: all model output tensors are averaged
-                             > maximum: only the maximum of the model output tensors are returned
-                             > add: adds up all the output tensors, element-wise
-        persist:             Persist model to disk if set to True
-        """
-
-        super().fit_ensemble(on=on, persist=persist)
-
-    def load(self, path: Union[str, Sequence[str], Sequence[os.PathLike]]):
-        """
-        Loads up a list of models or a single model from a list of paths or a path,
-        implemented in ABC and is called directly from it
-
-        Note that this de-initiates any stored models stored in the Model instance
-
-        Parameters
-        ----------
-        path:               A str or an Sized or Iterable of str of paths to stored models
-        """
-
-        super().load(path=path)
-
-    def evaluate(self, batch_size: int) -> list:
-        """
-        Evaluates the accuracy of the model, implemented in ABC and is called directly from it
-
-        Parameters
-        ----------
-        batch_size:          The fractional split of the overall dataset to use for evaluation
-        """
-
-        return super().evaluate(batch_size=batch_size)
-
-    def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None):
-        """
-        Predicts the label based on the input string
-
-        Parameters
-        ----------
-        to_predict:         String to feed into model for predictions
-        interpret:          Optional function to interpret predictions
-        """
-
-        return super().predict(to_predict=to_predict, interpret=interpret)
 
 
 class RNNModel(AbstractBaseModel):
@@ -1004,75 +956,6 @@ class RNNModel(AbstractBaseModel):
             self.file_counter += 1
             logging.info('Model saved')
 
-    def fit(self, persist: bool = True):
-        """
-        Fits the model(s) stored, using the abstract method defined in abstract base class
-
-        Ensemble fitting is done with fit_ensemble() function
-
-        Parameters
-        ----------
-        persist:                Flag to indicate whether to persist model to disk or not
-        """
-
-        super().fit(persist=persist)
-
-    def fit_ensemble(self, on: str = 'average', persist: bool = True):
-        """
-        Instantiates and fits the ensemble model, using the abstract method defined in
-        abstract base class
-
-        This function requires an ensemble of models to be trained first, and for the method of
-        ensemble output handling to be specified first
-
-        Parameters
-        ----------
-        on:                  Method to handle the outputs of all the stacked models
-                             > average: all model output tensors are averaged
-                             > maximum: only the maximum of the model output tensors are returned
-                             > add: adds up all the output tensors, element-wise
-        persist:             Persist model to disk if set to True
-        """
-
-        super().fit_ensemble(on=on, persist=persist)
-
-    def load(self, path: Union[str, Sequence[str], Sequence[os.PathLike]]):
-        """
-        Loads up a list of models or a single model from a list of paths or a path,
-        implemented in ABC and is called directly from it
-
-        Note that this de-initiates any stored models stored in the Model instance
-
-        Parameters
-        ----------
-        path:               A str or an Sized or Iterable of str of paths to stored models
-        """
-
-        super().load(path=path)
-
-    def evaluate(self, batch_size: int) -> list:
-        """
-        Evaluates the accuracy of the model, implemented in ABC and is called directly from it
-
-        Parameters
-        ----------
-        batch_size:          The fractional split of the overall dataset to use for evaluation
-        """
-
-        return super().evaluate(batch_size=batch_size)
-
-    def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None):
-        """
-        Predicts the label based on the input string
-
-        Parameters
-        ----------
-        to_predict:         String to feed into model for predictions
-        interpret:          Optional function to interpret predictions
-        """
-
-        return super().predict(to_predict=to_predict, interpret=interpret)
-
 
 class BidirectionalRNNModel(AbstractBaseModel):
     """A Bidirectional RNN model using multiple LSTM, Dense and Dropout layers"""
@@ -1321,187 +1204,202 @@ class BidirectionalRNNModel(AbstractBaseModel):
             self.file_counter += 1
             logging.info('Model saved')
 
-    def fit(self, persist: bool = True):
-        """
-        Fits the model(s) stored, using the abstract method defined in abstract base class
-
-        Ensemble fitting is done with fit_ensemble() function
-
-        Parameters
-        ----------
-        persist:                Flag to indicate whether to persist model to disk or not
-        """
-
-        super().fit(persist=persist)
-
-    def fit_ensemble(self, on: str = 'average', persist: bool = True):
-        """
-        Instantiates and fits the ensemble model, using the abstract method defined in
-        abstract base class
-
-        This function requires an ensemble of models to be trained first, and for the method of
-        ensemble output handling to be specified first
-
-        Parameters
-        ----------
-        on:                  Method to handle the outputs of all the stacked models
-                             > average: all model output tensors are averaged
-                             > maximum: only the maximum of the model output tensors are returned
-                             > add: adds up all the output tensors, element-wise
-        persist:             Persist model to disk if set to True
-        """
-
-        super().fit_ensemble(on=on, persist=persist)
-
-    def load(self, path: Union[str, Sequence[str], Sequence[os.PathLike]]):
-        """
-        Loads up a list of models or a single model from a list of paths or a path,
-        implemented in ABC and is called directly from it
-
-        Note that this de-initiates any stored models stored in the Model instance
-
-        Parameters
-        ----------
-        path:               A str or an Sized or Iterable of str of paths to stored models
-        """
-
-        super().load(path=path)
-
-    def evaluate(self, batch_size: int) -> list:
-        """
-        Evaluates the accuracy of the model, implemented in ABC and is called directly from it
-
-        Parameters
-        ----------
-        batch_size:          The fractional split of the overall dataset to use for evaluation
-        """
-
-        return super().evaluate(batch_size=batch_size)
-
-    def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None):
-        """
-        Predicts the label based on the input string
-
-        Parameters
-        ----------
-        to_predict:         String to feed into model for predictions
-        interpret:          Optional function to interpret predictions
-        """
-
-        return super().predict(to_predict=to_predict, interpret=interpret)
-
 
 class BaseUncasedBERTModel(AbstractBERTModel):
     """A base and uncased version of the BERT model"""
 
+    COMPATIBLE: str = 'bert-base-uncased'
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bert_vectorizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+
+        # correct tokenizer is always tested with the dataset
+        assert self.COMPATIBLE == self.model_data.load_from_name, 'Data not compatible with this model trainer'
+
+        self.bert_vectorizer = AutoTokenizer.from_pretrained(self.model_data.load_from_name)
         self.bert_data_collator = DataCollatorWithPadding(tokenizer=self.bert_vectorizer)
 
-    def instantiate(self, batch_size: int = 1, shuffle: bool = True, epochs: int = 100):
+    def instantiate(self, batch_size: int = 1, epochs: int = 100, initial_learning_rate: float = 1e-5):
         """
-        This function allows you to convert the input data to
+        This function helps to instantiate the model and begin building of the model
 
         Parameters
         ----------
+        batch_size:                 The number of batches of data, should ideally match with the data's specifications
+        epochs:                     Number of training cycles
+        initial_learning_rate:      Rate of learning initially for optimizer
         """
 
-        #TODO
+        assert type(self.model_data) == BERTModelData, 'Model Input must be compatible with BERT Models'
 
+        if batch_size != self.model_data.batch_size:
+            logging.warning('Input batch size is not the same as how data is batched in the dataset')
+
+        # initiate and save constants
         self.batch_size = batch_size
-        self.shuffle = shuffle
         self.epochs = epochs
+        self.learning_rate = initial_learning_rate
         batch_per_epoch = len(self.model_data.data) // self.batch_size
         total_train_step = int(batch_per_epoch * self.epochs)
 
-        self.model_data.apply(func_map=[lambda x: self.preprocessor(x)], tgt_map=[self.model_data.word_col])
-        pass
+        # create optimizer
+        optimizer, schedule = create_optimizer(init_lr=self.learning_rate, num_warmup_steps=0,
+                                               num_train_steps=total_train_step)
 
-    def optimise(self, *args, **kwargs):
-        """BERT Models do not support explicit optimizations"""
+        # instantiate model
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.COMPATIBLE,
+                                                                        num_labels=np.unique(self.model_data.y).size)
 
-        return super().optimise(*args, **kwargs)
-
-    def fit(self, persist: bool = True):
-        """
-        Fits the model(s) stored, using the abstract method defined in abstract base class
-
-        Ensemble fitting is done with fit_ensemble() function
-
-        Parameters
-        ----------
-        persist:                Flag to indicate whether to persist model to disk or not
-        """
-
-        pass
-
-    def fit_ensemble(self, *args, **kwargs):
-        """BERT Models do not support ensemble models"""
-
-        return super().fit_ensemble(*args, **kwargs)
-
-    def load(self, *args, **kwargs):
-        """BERT Models do not support being loaded from disk"""
-
-        return super().load(*args, **kwargs)
-
-    def evaluate(self, batch_size: int) -> list:
-        """
-        Evaluates the accuracy of the model, implemented in ABC and is called directly from it
-
-        Parameters
-        ----------
-        batch_size:          The fractional split of the overall dataset to use for evaluation
-        """
-
-        pass
-
-    def predict(self, to_predict: Union[str, list], interpret: Optional[Callable] = None):
-        """
-        Predicts the label based on the input string
-
-        Parameters
-        ----------
-        to_predict:         String to feed into model for predictions
-        interpret:          Optional function to interpret predictions
-        """
-
-        pass
+        self.model.compile(optimizer=optimizer, loss=self.model.compute_loss)
 
 
-class BaseCasedBERTModel(AbstractBaseModel):
-    bert_vectorizer: Optional[Any] = None
-    bert_data_collator: Optional[DataCollatorWithPadding] = None
+class BaseCasedBERTModel(AbstractBERTModel):
+    """A base and cased version of the BERT model"""
+
+    COMPATIBLE: str = 'bert-base-cased'
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bert_vectorizer = None
-        self.bert_data_collator = None
+
+        # correct tokenizer is always tested with the dataset
+        assert self.COMPATIBLE == self.model_data.load_from_name, 'Data not compatible with this model trainer'
+
+        self.bert_vectorizer = AutoTokenizer.from_pretrained(self.model_data.load_from_name)
+        self.bert_data_collator = DataCollatorWithPadding(tokenizer=self.bert_vectorizer)
+
+    def instantiate(self, batch_size: int = 1, epochs: int = 100, initial_learning_rate: float = 1e-5):
+        """
+        This function helps to instantiate the model and begin building of the model
+
+        Parameters
+        ----------
+        batch_size:                 The number of batches of data, should ideally match with the data's specifications
+        epochs:                     Number of training cycles
+        initial_learning_rate:      Rate of learning initially for optimizer
+        """
+
+        assert type(self.model_data) == BERTModelData, 'Model Input must be compatible with BERT Models'
+
+        if batch_size != self.model_data.batch_size:
+            logging.warning('Input batch size is not the same as how data is batched in the dataset')
+
+        # initiate and save constants
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.learning_rate = initial_learning_rate
+        batch_per_epoch = len(self.model_data.data) // self.batch_size
+        total_train_step = int(batch_per_epoch * self.epochs)
+
+        # create optimizer
+        optimizer, schedule = create_optimizer(init_lr=self.learning_rate, num_warmup_steps=0,
+                                               num_train_steps=total_train_step)
+
+        # instantiate model
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.COMPATIBLE,
+                                                                        num_labels=np.unique(self.model_data.y).size)
+
+        self.model.compile(optimizer=optimizer, loss=self.model.compute_loss)
 
 
-class LargeUncasedBERTModel(AbstractBaseModel):
-    bert_vectorizer: Optional[Any] = None
-    bert_data_collator: Optional[DataCollatorWithPadding] = None
+class LargeUncasedBERTModel(AbstractBERTModel):
+    """A large and uncased version of the BERT model"""
+
+    COMPATIBLE: str = 'bert-large-uncased'
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bert_vectorizer = None
-        self.bert_data_collator = None
+
+        # correct tokenizer is always tested with the dataset
+        assert self.COMPATIBLE == self.model_data.load_from_name, 'Data not compatible with this model trainer'
+
+        self.bert_vectorizer = AutoTokenizer.from_pretrained(self.model_data.load_from_name)
+        self.bert_data_collator = DataCollatorWithPadding(tokenizer=self.bert_vectorizer)
+
+    def instantiate(self, batch_size: int = 1, epochs: int = 100, initial_learning_rate: float = 1e-5):
+        """
+        This function helps to instantiate the model and begin building of the model
+
+        Parameters
+        ----------
+        batch_size:                 The number of batches of data, should ideally match with the data's specifications
+        epochs:                     Number of training cycles
+        initial_learning_rate:      Rate of learning initially for optimizer
+        """
+
+        assert type(self.model_data) == BERTModelData, 'Model Input must be compatible with BERT Models'
+
+        if batch_size != self.model_data.batch_size:
+            logging.warning('Input batch size is not the same as how data is batched in the dataset')
+
+        # initiate and save constants
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.learning_rate = initial_learning_rate
+        batch_per_epoch = len(self.model_data.data) // self.batch_size
+        total_train_step = int(batch_per_epoch * self.epochs)
+
+        # create optimizer
+        optimizer, schedule = create_optimizer(init_lr=self.learning_rate, num_warmup_steps=0,
+                                               num_train_steps=total_train_step)
+
+        # instantiate model
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.COMPATIBLE,
+                                                                        num_labels=np.unique(self.model_data.y).size)
+
+        self.model.compile(optimizer=optimizer, loss=self.model.compute_loss)
 
 
-class LargeCasedBERTModel(AbstractBaseModel):
-    bert_vectorizer: Optional[Any] = None
-    bert_data_collator: Optional[DataCollatorWithPadding] = None
+class LargeCasedBERTModel(AbstractBERTModel):
+    """A large and cased version of the BERT model"""
+
+    COMPATIBLE: str = 'bert-large-cased'
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
-        self.bert_vectorizer = None
-        self.bert_data_collator = None
+
+        # correct tokenizer is always tested with the dataset
+        assert self.COMPATIBLE == self.model_data.load_from_name, 'Data not compatible with this model trainer'
+
+        self.bert_vectorizer = AutoTokenizer.from_pretrained(self.model_data.load_from_name)
+        self.bert_data_collator = DataCollatorWithPadding(tokenizer=self.bert_vectorizer)
+
+    def instantiate(self, batch_size: int = 1, epochs: int = 100, initial_learning_rate: float = 1e-5):
+        """
+        This function helps to instantiate the model and begin building of the model
+
+        Parameters
+        ----------
+        batch_size:                 The number of batches of data, should ideally match with the data's specifications
+        epochs:                     Number of training cycles
+        initial_learning_rate:      Rate of learning initially for optimizer
+        """
+
+        assert type(self.model_data) == BERTModelData, 'Model Input must be compatible with BERT Models'
+
+        if batch_size != self.model_data.batch_size:
+            logging.warning('Input batch size is not the same as how data is batched in the dataset')
+
+        # initiate and save constants
+        self.batch_size = batch_size
+        self.epochs = epochs
+        self.learning_rate = initial_learning_rate
+        batch_per_epoch = len(self.model_data.data) // self.batch_size
+        total_train_step = int(batch_per_epoch * self.epochs)
+
+        # create optimizer
+        optimizer, schedule = create_optimizer(init_lr=self.learning_rate, num_warmup_steps=0,
+                                               num_train_steps=total_train_step)
+
+        # instantiate model
+        self.model = AutoModelForSequenceClassification.from_pretrained(self.COMPATIBLE,
+                                                                        num_labels=np.unique(self.model_data.y).size)
+
+        self.model.compile(optimizer=optimizer, loss=self.model.compute_loss)
 
 
 if __name__ == '__main__':
+    # test cases
     sm = SimpleModel(ensemble_count=1, model_data=ModelData(path=os.getcwd(), format='csv', on_error='ignore'))
     rnnm = RNNModel(ensemble_count=1, model_data=ModelData(path=os.getcwd(), format='csv', on_error='ignore'))
     birnnm = BidirectionalRNNModel(ensemble_count=1, model_data=ModelData(path=os.getcwd(), format='csv',
-                                                                           on_error='ignore'))
+                                                                          on_error='ignore'))

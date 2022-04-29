@@ -1,4 +1,3 @@
-import abc
 import os
 import pandas as pd
 import sklearn.model_selection as prep
@@ -7,6 +6,7 @@ import numpy as np
 import pickle
 import tensorflow as tf
 
+from abc import ABC, abstractmethod
 from tensorflow.keras import utils
 from sklearn.preprocessing import LabelEncoder
 from pydantic import *
@@ -129,7 +129,7 @@ class IterableDrop(BaseModel):
 # +-------------------------------------------------------------------------------------------------------------------+
 # |                                     ABSTRACT BASE CLASS FOR ALL MODEL CLASSES                                     |
 # +-------------------------------------------------------------------------------------------------------------------+
-class AbstractModelInput(BaseModel, abc.ABC):
+class AbstractModelInput(BaseModel, ABC):
     """
     This is an abstract class to define model inputs
 
@@ -214,7 +214,7 @@ class AbstractModelInput(BaseModel, abc.ABC):
         else:
             raise ValueError(f'Format {v} is not recognised')
 
-    @abc.abstractmethod
+    @abstractmethod
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -280,7 +280,7 @@ class AbstractModelInput(BaseModel, abc.ABC):
             elif self.on_error == 'raise':
                 raise ex
 
-    @abc.abstractmethod
+    @abstractmethod
     def preprocess(self, *args, **kwargs):
         raise NotImplementedError
 
@@ -311,7 +311,7 @@ class AbstractModelInput(BaseModel, abc.ABC):
 
         return self.data.shape if self.data is not None else (0,)
 
-    @abc.abstractmethod
+    @abstractmethod
     def is_processed(self) -> bool:
         """Simple check to see if data is properly split and processed"""
 
@@ -329,6 +329,9 @@ class AbstractModelInput(BaseModel, abc.ABC):
                             (self.data, self.X, self.y, self.X_train, self.X_test, self.y_train, self.y_test))))
 
 
+# +-------------------------------------------------------------------------------------------------------------------+
+# |                                             CONCRETE MODEL CLASSES                                                |
+# +-------------------------------------------------------------------------------------------------------------------+
 class ModelData(AbstractModelInput):
     """Base Model Data Class for non-BERT based models"""
 
@@ -394,6 +397,7 @@ class ModelData(AbstractModelInput):
 class BERTModelData(AbstractModelInput):
     """BERT Model Data"""
 
+    load_from_name: str
     vectorizer: Any = None
     collator: Optional[DataCollatorWithPadding] = None
     train_dataset: Optional[tf.data.Dataset] = None
@@ -404,7 +408,7 @@ class BERTModelData(AbstractModelInput):
         super().__init__(**kwargs)
 
         try:
-            self.tokenizer = AutoTokenizer.from_pretrained(kwargs.get('load_from_name'))
+            self.tokenizer = AutoTokenizer.from_pretrained(self.load_from_name)
             self.collator = DataCollatorWithPadding(tokenizer=self.tokenizer)
             self.train_dataset = None
             self.test_dataset = None
@@ -413,6 +417,16 @@ class BERTModelData(AbstractModelInput):
             raise ex
         else:
             self.read()
+
+    @validator('load_from_name', allow_reuse=True)
+    def assert_load_from_name(cls, v):
+        if isinstance(v, str):
+            if v in ['bert-base-uncased', 'bert-base-cased', 'bert-large-uncased', 'bert-large-cased']:
+                return v
+            else:
+                raise ValueError('Name not recognised')
+        else:
+            raise TypeError('Name must be a string')
 
     @validator('batch_size', allow_reuse=True)
     def assert_valid_batches(cls, v):
@@ -425,7 +439,7 @@ class BERTModelData(AbstractModelInput):
             raise TypeError('Batch Size must be an int')
 
     def preprocess(self, word_col: str, label_col: str, train_test_split: StrictFloat,
-                   batch_size: int = 1):
+                   batch_size: int = 1, shuffle_buffer: Optional[int] = None):
         """
         Preprocesses the dataset and splits the dataset into train-test sets
 
@@ -475,12 +489,17 @@ class BERTModelData(AbstractModelInput):
             else:
                 self.X_train = self.tokenizer(self.X_train, truncation=True, padding=True)
                 self.X_test = self.tokenizer(self.X_test, truncation=True, padding=True)
-                self.train_dataset = tf.data.Dataset.from_tensor_slices((
-                    self.X_train, self.y_train
-                )).batch(batch_size=self.batch_size)
-                self.test_dataset = tf.data.Dataset.from_tensor_slices((
-                    self.X_test, self.y_test
-                )).batch(batch_size=self.batch_size)
+
+                if isinstance(shuffle_buffer, int) and shuffle_buffer > 0:
+                    self.train_dataset = tf.data.Dataset.from_tensor_slices((
+                        self.X_train, self.y_train
+                    )).shuffle(shuffle_buffer).batch(batch_size=self.batch_size)
+                elif isinstance(shuffle_buffer, int) and shuffle_buffer <= 0:
+                    raise ValueError('Shuffling buffer cannot be zero or negative')
+                elif shuffle_buffer is None:
+                    self.test_dataset = tf.data.Dataset.from_tensor_slices((
+                        self.X_test, self.y_test
+                    )).batch(batch_size=self.batch_size)
 
     def is_processed(self) -> bool:
         """Simple check to see if data is properly split and processed"""
