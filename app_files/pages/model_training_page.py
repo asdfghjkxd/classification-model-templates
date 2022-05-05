@@ -6,7 +6,7 @@ import json
 from .utils.utils import init_session_state
 from streamlit_ace import st_ace
 from streamlit_tags import st_tags
-from ..data_classes.model_validator import *
+# from ..data_classes.model_validator import *
 
 
 def page():
@@ -111,6 +111,14 @@ def page():
                                                                     step=1,
                                                                     value=10,
                                                                     key=f'patience')
+    if st.session_state.data_parameters['model_name'] in ['bert-base-uncased', 'bert-base-cased',
+                                                          'bert-large-uncased', 'bert-large-cased']:
+        st.session_state.model_parameters['initial_lr'] = st.number_input('Initial Learning Rate for model',
+                                                                          step=1e-6,
+                                                                          format='%.6f',
+                                                                          min_value=1e-7,
+                                                                          max_value=1.,
+                                                                          value=1e-5)
 
     st.markdown('#### Model Persistence')
     st.session_state.model_parameters['persist'] = st.checkbox('Persist Model to Disk?', value=True, key='persist')
@@ -138,7 +146,8 @@ def page():
             else:
                 st.info(f'**Keyword arguments accepted:** {st.session_state.model_parameters["kwargs"]}')
 
-    st.markdown('## Build and Train Model\n'
+    st.markdown('---\n'
+                '## Build and Train Model\n'
                 'Click on the button to begin the construction and building of your model.')
     if st.button('Continue', key='continue'):
         try:
@@ -185,27 +194,22 @@ def page():
                                                    verbose=st.session_state.model_parameters['verbose'])
                 st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
 
-            # TODO: ALLOW INPUT FOR INITIAL TRAINING RATE FOR BERT MODELS
             elif st.session_state.data_parameters['model_name'] == 'bert-base-uncased':
                 st.session_state.model = BaseUncasedBERTModel(model_data=st.session_state.data_parameters['input'])
-                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
-                                                   batch_size=st.session_state.model_parameters['batch_size'])
-                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
             elif st.session_state.data_parameters['model_name'] == 'bert-base-cased':
                 st.session_state.model = BaseCasedBERTModel(model_data=st.session_state.data_parameters['input'])
-                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
-                                                   batch_size=st.session_state.model_parameters['batch_size'])
-                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
             elif st.session_state.data_parameters['model_name'] == 'bert-large-uncased':
                 st.session_state.model = LargeUncasedBERTModel(model_data=st.session_state.data_parameters['input'])
-                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
-                                                   batch_size=st.session_state.model_parameters['batch_size'])
-                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
             elif st.session_state.data_parameters['model_name'] == 'bert-large-cased':
                 st.session_state.model = LargeUncasedBERTModel(model_data=st.session_state.data_parameters['input'])
-                st.session_state.model.instantiate(epochs=st.session_state.model_parameters['epochs'],
-                                                   batch_size=st.session_state.model_parameters['batch_size'])
-                st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
+
+            st.session_state.model.instantiate(
+                epochs=st.session_state.model_parameters['epochs'],
+                batch_size=st.session_state.model_parameters['batch_size'],
+                initial_learning_rate=st.session_state.model_parameters['initial_lr'],
+            )
+            # model historical records can be accessed by referencing the .history property of self.session_state.model
+            st.session_state.model.fit(persist=st.session_state.model_parameters['persist'])
         except Exception as ex:
             raise ex
         else:

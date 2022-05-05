@@ -2,7 +2,7 @@ import json
 import streamlit as st
 
 from .utils.utils import init_session_state
-from ..data_classes.data_validator import *
+# from ..data_classes.data_validator import *
 from streamlit_tags import st_tags
 from streamlit_ace import st_ace
 
@@ -53,6 +53,9 @@ def page():
                 st.info(f'**Keyword arguments accepted:** {kwargs_parsed}')
 
     if not st.session_state.data_parameters['loaded']:
+        st.markdown('---\n'
+                    '## Load Data\n'
+                    'Click on the button to begin the loading and preprocessing of input data.')
         if st.button('Load and parse data'):
             try:
                 if st.session_state.data_parameters['model_name'] in ['Simple', 'RNN', 'BiLSTM']:
@@ -72,8 +75,6 @@ def page():
                     st.success('Data loaded and parsed!')
                     st.session_state.data_parameters['loaded'] = True
                 else:
-                    # TODO: DEBUGGING PASSTHROUGH: TO DELETE ONCE DONE
-                    st.session_state.data_parameters['loaded'] = True
                     st.error('Data not loaded or parsed')
 
     if st.session_state.data_parameters['loaded']:

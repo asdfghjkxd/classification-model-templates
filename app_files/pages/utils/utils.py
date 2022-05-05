@@ -25,6 +25,7 @@ def init_session_state():
             'verbose': 1,
             'patience': 10,
             'persist': True,
+            'initial_lr': 1e-5,
             'args': (),
             'kwargs': {}
         }
