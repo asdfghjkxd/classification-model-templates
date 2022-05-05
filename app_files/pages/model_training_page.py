@@ -6,7 +6,7 @@ import json
 from .utils.utils import init_session_state
 from streamlit_ace import st_ace
 from streamlit_tags import st_tags
-# from ..data_classes.model_validator import *
+from ..data_classes.model_validator import *
 
 
 def page():

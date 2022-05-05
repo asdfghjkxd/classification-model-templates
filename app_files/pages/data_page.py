@@ -2,7 +2,7 @@ import json
 import streamlit as st
 
 from .utils.utils import init_session_state
-# from ..data_classes.data_validator import *
+from ..data_classes.data_validator import *
 from streamlit_tags import st_tags
 from streamlit_ace import st_ace
 
@@ -15,7 +15,6 @@ def page():
     # main page
     st.title('Data Processing')
     st.markdown('This module allows you to read and process the data to use for the Model Builder module.')
-
     st.header('Upload Data')
     st.markdown('Upload your data files first.\n\nEnsure that your data files are of the **same format**, '
                 'and that they are uploaded in the order you want your data expressed (if you are '
